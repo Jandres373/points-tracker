@@ -1,9 +1,78 @@
 @import "tailwindcss";
 
 @layer base {
-  body {
-    background-color: #0f172a;
-    color: #f8fafc;
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  :root {
+    --paper-bg: #f7f4ec;
+    --paper-edge: #eee8db;
+    --ink-black: #171513;
+    --ink-faded: #78716c;
   }
+
+  body {
+    background-color: var(--paper-bg);
+    color: var(--ink-black);
+    font-family: 'Newsreader', Georgia, serif;
+    background-image: 
+      radial-gradient(#171513 0.65px, transparent 0.65px),
+      radial-gradient(#a8a29e 0.4px, transparent 0.4px);
+    background-size: 20px 20px, 36px 36px;
+    background-position: 0 0, 10px 10px;
+    min-height: 100vh;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+/* Glitter shimmer keyframes */
+@keyframes glitterTwinkle {
+  0%, 100% {
+    opacity: 0.15;
+    transform: scale(0.8) rotate(0deg);
+    filter: drop-shadow(0 0 2px rgba(212, 175, 55, 0.2));
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.15) rotate(180deg);
+    filter: drop-shadow(0 0 8px rgba(245, 215, 110, 0.7));
+  }
+}
+
+@keyframes goldShimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.glitter-particle {
+  position: absolute;
+  pointer-events: none;
+  animation: glitterTwinkle ease-in-out infinite;
+}
+
+.font-cinzel {
+  font-family: 'Cinzel', serif;
+}
+
+.font-mono-num {
+  font-family: 'Space Mono', monospace;
+}
+
+.paper-grain {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  z-index: 50;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+.ink-border-b {
+  border-bottom: 1px solid rgba(23, 21, 19, 0.12);
+}
+
+.ink-border-t {
+  border-top: 1px solid rgba(23, 21, 19, 0.12);
 }

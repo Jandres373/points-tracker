@@ -1,19 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Trophy, 
-  Lock, 
-  Unlock, 
-  Plus, 
-  Minus, 
-  Sparkles, 
-  Wifi, 
-  WifiOff, 
-  AlertCircle,
-  RefreshCw,
-  Award,
-  Flame,
-  CheckCircle2
-} from 'lucide-react';
+import { Sparkles, Lock, Unlock, Minus, Plus, X } from 'lucide-react';
 
 interface PointsState {
   vivi: number;
@@ -22,7 +8,6 @@ interface PointsState {
 
 export default function App() {
   const [points, setPoints] = useState<PointsState>(() => {
-    // Local storage fallback inicial
     const saved = localStorage.getItem('pts_cache');
     if (saved) {
       try {
@@ -33,26 +18,24 @@ export default function App() {
   });
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [pinInput, setPinInput] = useState<string>('');
   const [pinError, setPinError] = useState<string>('');
-  const [isConnected, setIsConnected] = useState<boolean>(false);
-  const [isUpdating, setIsUpdating] = useState<boolean>(false);
-  const [notification, setNotification] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const socketRef = useRef<WebSocket | null>(null);
 
-  // Guardar en cache local ante cada cambio
   useEffect(() => {
     localStorage.setItem('pts_cache', JSON.stringify(points));
   }, [points]);
 
-  // Toast notification helper
-  const notify = (msg: string) => {
-    setNotification(msg);
-    setTimeout(() => setNotification(null), 3000);
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2400);
   };
 
-  // Conectar con WebSocket / Cloudflare Durable Object
+  // Conexión Cloudflare Pages Functions / WebSocket
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
@@ -61,14 +44,10 @@ export default function App() {
     let ws: WebSocket;
     let reconnectTimeout: any;
 
-    const connectWebSocket = () => {
+    const connect = () => {
       try {
         ws = new WebSocket(wsUrl);
         socketRef.current = ws;
-
-        ws.onopen = () => {
-          setIsConnected(true);
-        };
 
         ws.onmessage = (event) => {
           try {
@@ -79,105 +58,81 @@ export default function App() {
                 andy: Number(data.data.andy) || 0,
               });
             } else if (data.type === 'ERROR') {
-              notify(data.message || 'Error en la sincronización');
+              showToast(data.message || 'Error en sincronización');
             }
-          } catch (err) {
-            console.error('Error parseando mensaje WS', err);
-          }
+          } catch (err) {}
         };
 
         ws.onclose = () => {
-          setIsConnected(false);
-          // Reintento de reconexión automático
-          reconnectTimeout = setTimeout(connectWebSocket, 3000);
+          reconnectTimeout = setTimeout(connect, 3500);
         };
-
-        ws.onerror = () => {
-          setIsConnected(false);
-        };
-      } catch (err) {
-        setIsConnected(false);
-        reconnectTimeout = setTimeout(connectWebSocket, 3000);
+      } catch (e) {
+        reconnectTimeout = setTimeout(connect, 3500);
       }
     };
 
-    connectWebSocket();
+    connect();
 
-    // Polling de respaldo en caso de que WS no esté soportado en localhost de Vite o CDN estricta
-    const fallbackPoll = setInterval(async () => {
+    // Fallback polling ligero
+    const pollInterval = setInterval(async () => {
       if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
         try {
           const res = await fetch('/api/points');
           if (res.ok) {
             const data = await res.json();
-            setPoints({
-              vivi: Number(data.vivi) || 0,
-              andy: Number(data.andy) || 0,
-            });
-            setIsConnected(true);
+            if (data.vivi !== undefined && data.andy !== undefined) {
+              setPoints({
+                vivi: Number(data.vivi) || 0,
+                andy: Number(data.andy) || 0,
+              });
+            }
           }
-        } catch (e) {
-          // Servidor local o sin backend levantado
-        }
+        } catch (e) {}
       }
-    }, 4000);
+    }, 5000);
 
     return () => {
       clearTimeout(reconnectTimeout);
-      clearInterval(fallbackPoll);
+      clearInterval(pollInterval);
       if (ws) ws.close();
     };
   }, []);
 
-  // Validación de clave 0000
-  const handlePinSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (pinInput === '0000') {
-      setIsAuthenticated(true);
-      setPinError('');
-      setPinInput('');
-      notify('¡Modo de edición activado!');
-    } else {
-      setPinError('Código incorrecto. Inténtalo de nuevo.');
-      setPinInput('');
-    }
-  };
-
   const handlePinDigit = (digit: string) => {
     if (pinInput.length < 4) {
-      const nextPin = pinInput + digit;
-      setPinInput(nextPin);
+      const next = pinInput + digit;
+      setPinInput(next);
       setPinError('');
-      if (nextPin.length === 4) {
-        if (nextPin === '0000') {
+
+      if (next.length === 4) {
+        if (next === '0000') {
           setIsAuthenticated(true);
+          setShowPinModal(false);
           setPinInput('');
-          notify('¡Modo de edición activado!');
+          showToast('Edición desbloqueada');
         } else {
-          setPinError('Código incorrecto. Inténtalo de nuevo.');
-          setPinInput('');
+          setPinError('Clave incorrecta');
+          setTimeout(() => {
+            setPinInput('');
+            setPinError('');
+          }, 800);
         }
       }
     }
   };
 
-  // Modificar puntos (solo disponible si isAuthenticated)
   const modifyPoints = async (person: 'vivi' | 'andy', delta: number) => {
     if (!isAuthenticated) {
-      notify('Debes ingresar la clave 0000 para editar');
+      setShowPinModal(true);
       return;
     }
 
-    setIsUpdating(true);
-
-    // Actualización optimista local
-    const targetPerson = person.toLowerCase() as 'vivi' | 'andy';
+    setIsSyncing(true);
     setPoints((prev) => ({
       ...prev,
-      [targetPerson]: Math.max(0, prev[targetPerson] + delta),
+      [person]: Math.max(0, prev[person] + delta),
     }));
 
-    // Enviar por WebSocket si está conectado
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -187,288 +142,262 @@ export default function App() {
           pin: '0000',
         })
       );
-      setIsUpdating(false);
+      setIsSyncing(false);
       return;
     }
 
-    // Fallback vía REST API
     try {
-      const res = await fetch('/api/points', {
+      await fetch('/api/points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ person, delta, pin: '0000' }),
       });
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || 'Fallo al sincronizar');
-      }
-
-      const data = await res.json();
-      if (data.vivi !== undefined && data.andy !== undefined) {
-        setPoints({ vivi: data.vivi, andy: data.andy });
-      }
-    } catch (err: any) {
-      console.warn('API sync warning:', err.message);
-      // Persistido en localStorage automáticamente
+    } catch (e) {
     } finally {
-      setIsUpdating(false);
+      setIsSyncing(false);
     }
   };
 
-  const leader = points.vivi > points.andy ? 'vivi' : points.andy > points.vivi ? 'andy' : 'tie';
+  // Posiciones de partículas glitter decorativas
+  const glitterPoints = [
+    { top: '12%', left: '8%', delay: '0s', duration: '3.2s', size: 10 },
+    { top: '18%', right: '12%', delay: '1.4s', duration: '2.8s', size: 13 },
+    { top: '48%', left: '4%', delay: '0.7s', duration: '3.6s', size: 9 },
+    { top: '53%', right: '7%', delay: '2.1s', duration: '4s', size: 11 },
+    { top: '84%', left: '14%', delay: '1.8s', duration: '3s', size: 12 },
+    { top: '78%', right: '15%', delay: '0.4s', duration: '3.4s', size: 9 },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 text-white flex flex-col justify-between p-4 sm:p-8">
-      {/* Toast Notification */}
-      {notification && (
-        <div className="fixed top-6 right-6 z-50 bg-indigo-600 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 animate-bounce">
-          <Sparkles className="w-5 h-5 text-yellow-300" />
-          <span className="font-medium text-sm">{notification}</span>
+    <div className="relative min-h-[100dvh] flex flex-col justify-between max-w-md mx-auto px-6 py-7 select-none overflow-hidden">
+      {/* Grano de papel overlay */}
+      <div className="paper-grain" />
+
+      {/* Partículas glitter flotantes sutiles */}
+      {glitterPoints.map((pt, i) => (
+        <div
+          key={i}
+          className="glitter-particle text-amber-700/60"
+          style={{
+            top: pt.top,
+            left: pt.left,
+            right: pt.right,
+            animationDelay: pt.delay,
+            animationDuration: pt.duration,
+          }}
+        >
+          <Sparkles style={{ width: pt.size, height: pt.size }} />
+        </div>
+      ))}
+
+      {/* Notificación Toast minimalista */}
+      {toast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1c1917] text-[#f7f4ec] text-xs font-mono tracking-wider py-1.5 px-4 rounded-full shadow-lg border border-stone-800 flex items-center gap-2 animate-fade-in">
+          <Sparkles className="w-3 h-3 text-amber-300" />
+          <span>{toast}</span>
         </div>
       )}
 
-      {/* Top Header */}
-      <header className="max-w-4xl mx-auto w-full flex flex-col sm:flex-row justify-between items-center gap-4 py-4 border-b border-indigo-900/40">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-tr from-pink-500 to-indigo-600 rounded-2xl shadow-lg shadow-indigo-500/25">
-            <Trophy className="w-7 h-7 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight bg-gradient-to-r from-pink-400 via-purple-300 to-indigo-300 bg-clip-text text-transparent">
-              Points Tracker
-            </h1>
-            <p className="text-xs sm:text-sm text-indigo-300/70 font-medium">
-              Marcador Realtime Cloudflare • Vivi vs Andy
-            </p>
-          </div>
+      {/* Encabezado: Tipografía editorial, sobria, sin cajas */}
+      <header className="flex items-center justify-between pt-2 pb-5 border-b border-stone-800/15">
+        <div>
+          <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
+            Registro de Puntos
+          </span>
+          <h1 className="text-xl font-normal tracking-tight text-stone-900 font-cinzel">
+            Vivi & Andy
+          </h1>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Connection badge */}
-          <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
-            isConnected 
-              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' 
-              : 'bg-amber-500/10 border-amber-500/30 text-amber-400'
-          }`}>
-            {isConnected ? (
-              <>
-                <Wifi className="w-3.5 h-3.5 animate-pulse" />
-                <span>Realtime Activo</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="w-3.5 h-3.5" />
-                <span>Modo Local / Desconectado</span>
-              </>
-            )}
-          </div>
-
-          {/* Auth status badge */}
+        {/* Botón de bloqueo/desbloqueo minimalista */}
+        <button
+          onClick={() => {
+            if (isAuthenticated) {
+              setIsAuthenticated(false);
+              showToast('Edición bloqueada');
+            } else {
+              setShowPinModal(true);
+            }
+          }}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-800/20 hover:border-stone-800 bg-[#f7f4ec]/80 backdrop-blur-xs text-stone-800 text-xs font-mono transition-all active:scale-95 cursor-pointer"
+        >
           {isAuthenticated ? (
-            <button
-              onClick={() => {
-                setIsAuthenticated(false);
-                notify('Sesión de edición bloqueada');
-              }}
-              className="flex items-center gap-2 px-3.5 py-1.5 bg-rose-500/15 hover:bg-rose-500/25 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-semibold transition-all cursor-pointer"
-              title="Haz clic para bloquear"
-            >
-              <Unlock className="w-3.5 h-3.5 text-rose-400" />
-              <span>Bloquear</span>
-            </button>
+            <>
+              <Unlock className="w-3.5 h-3.5 text-stone-900" />
+              <span className="text-[11px] uppercase tracking-wider font-semibold">Editar</span>
+            </>
           ) : (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800/60 border border-slate-700/50 rounded-xl text-xs text-slate-400">
-              <Lock className="w-3.5 h-3.5 text-slate-400" />
-              <span>Protegido con PIN</span>
-            </div>
+            <>
+              <Lock className="w-3.5 h-3.5 text-stone-400" />
+              <span className="text-[11px] uppercase tracking-wider text-stone-500">0000</span>
+            </>
           )}
-        </div>
+        </button>
       </header>
 
-      {/* Main Content Area */}
-      <main className="max-w-4xl mx-auto w-full flex-1 flex flex-col justify-center py-8 gap-8">
-        {/* Score Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 sm:gap-8">
-          
-          {/* Card Vivi */}
-          <div className={`relative overflow-hidden rounded-3xl p-6 sm:p-8 backdrop-blur-xl border transition-all duration-300 ${
-            leader === 'vivi' 
-              ? 'bg-gradient-to-b from-pink-950/40 to-slate-900/80 border-pink-500/50 shadow-2xl shadow-pink-500/10 ring-2 ring-pink-500/30' 
-              : 'bg-slate-900/60 border-slate-800/80 hover:border-pink-500/30'
-          }`}>
-            {leader === 'vivi' && (
-              <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-pink-500/20 text-pink-300 px-3 py-1 rounded-full text-xs font-bold border border-pink-500/40">
-                <Flame className="w-3.5 h-3.5 text-pink-400 fill-pink-400 animate-pulse" />
-                <span>LIDERANDO</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center text-xl font-black text-white shadow-md">
-                V
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-white tracking-wide">Puntos Vivi</h2>
-                <p className="text-xs text-pink-300/60">Puntaje acumulado</p>
-              </div>
-            </div>
-
-            <div className="my-8 text-center">
-              <span className="text-6xl sm:text-7xl font-extrabold bg-gradient-to-br from-pink-300 via-rose-100 to-white bg-clip-text text-transparent font-mono tracking-tight drop-shadow-sm">
-                {points.vivi}
+      {/* Contenido Principal Mobile-First: Formato continuo de pliego/página */}
+      <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-6">
+        
+        {/* Sección Vivi */}
+        <div className="flex flex-col justify-center py-8">
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
+              I. Vivi
+            </span>
+            {points.vivi > points.andy && (
+              <span className="flex items-center gap-1 text-[11px] tracking-widest uppercase font-mono text-stone-600">
+                <Sparkles className="w-3 h-3 text-amber-600" />
+                Líder
               </span>
-              <p className="text-xs uppercase tracking-widest text-pink-300/40 mt-1 font-semibold">
-                puntos
-              </p>
-            </div>
-
-            {/* Action buttons (only if authenticated) */}
-            {isAuthenticated ? (
-              <div className="grid grid-cols-2 gap-3 pt-4 border-t border-pink-500/20">
-                <button
-                  disabled={isUpdating || points.vivi <= 0}
-                  onClick={() => modifyPoints('vivi', -1)}
-                  className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-pink-500/10 hover:bg-pink-500/20 active:scale-95 text-pink-300 font-semibold text-sm transition-all border border-pink-500/20 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Minus className="w-4 h-4" />
-                  <span>Restar 1</span>
-                </button>
-                <button
-                  disabled={isUpdating}
-                  onClick={() => modifyPoints('vivi', 1)}
-                  className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-pink-600 to-rose-600 hover:from-pink-500 hover:to-rose-500 active:scale-95 text-white font-semibold text-sm transition-all shadow-lg shadow-pink-600/25 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Sumar 1</span>
-                </button>
-              </div>
-            ) : (
-              <div className="pt-4 border-t border-slate-800 text-center">
-                <span className="text-xs text-slate-400 italic">
-                  Ingresa la clave abajo para modificar
-                </span>
-              </div>
             )}
           </div>
 
-          {/* Card Andy */}
-          <div className={`relative overflow-hidden rounded-3xl p-6 sm:p-8 backdrop-blur-xl border transition-all duration-300 ${
-            leader === 'andy' 
-              ? 'bg-gradient-to-b from-indigo-950/40 to-slate-900/80 border-indigo-500/50 shadow-2xl shadow-indigo-500/10 ring-2 ring-indigo-500/30' 
-              : 'bg-slate-900/60 border-slate-800/80 hover:border-indigo-500/30'
-          }`}>
-            {leader === 'andy' && (
-              <div className="absolute top-4 right-4 flex items-center gap-1.5 bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-xs font-bold border border-indigo-500/40">
-                <Flame className="w-3.5 h-3.5 text-indigo-400 fill-indigo-400 animate-pulse" />
-                <span>LIDERANDO</span>
-              </div>
-            )}
-
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-600 flex items-center justify-center text-xl font-black text-white shadow-md">
-                A
-              </div>
-              <div>
-                <h2 className="text-2xl font-bold text-white tracking-wide">Puntos Andy</h2>
-                <p className="text-xs text-indigo-300/60">Puntaje acumulado</p>
-              </div>
+          <div className="flex items-center justify-between">
+            <div className="font-mono-num text-7xl font-light text-stone-900 tracking-tighter">
+              {String(points.vivi).padStart(2, '0')}
             </div>
 
-            <div className="my-8 text-center">
-              <span className="text-6xl sm:text-7xl font-extrabold bg-gradient-to-br from-cyan-300 via-indigo-100 to-white bg-clip-text text-transparent font-mono tracking-tight drop-shadow-sm">
-                {points.andy}
-              </span>
-              <p className="text-xs uppercase tracking-widest text-indigo-300/40 mt-1 font-semibold">
-                puntos
-              </p>
+            {/* Controles integrados sin cards */}
+            <div className="flex items-center gap-3">
+              <button
+                disabled={isSyncing || points.vivi <= 0}
+                onClick={() => modifyPoints('vivi', -1)}
+                className="w-12 h-12 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                title="Restar 1"
+              >
+                <Minus className="w-5 h-5 stroke-[1.5]" />
+              </button>
+              <button
+                disabled={isSyncing}
+                onClick={() => modifyPoints('vivi', 1)}
+                className="w-12 h-12 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-sm"
+                title="Sumar 1"
+              >
+                <Plus className="w-5 h-5 stroke-[1.5]" />
+              </button>
             </div>
-
-            {/* Action buttons (only if authenticated) */}
-            {isAuthenticated ? (
-              <div className="grid grid-cols-2 gap-3 pt-4 border-t border-indigo-500/20">
-                <button
-                  disabled={isUpdating || points.andy <= 0}
-                  onClick={() => modifyPoints('andy', -1)}
-                  className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 active:scale-95 text-indigo-300 font-semibold text-sm transition-all border border-indigo-500/20 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-                >
-                  <Minus className="w-4 h-4" />
-                  <span>Restar 1</span>
-                </button>
-                <button
-                  disabled={isUpdating}
-                  onClick={() => modifyPoints('andy', 1)}
-                  className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-500 hover:to-cyan-500 active:scale-95 text-white font-semibold text-sm transition-all shadow-lg shadow-indigo-600/25 cursor-pointer"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Sumar 1</span>
-                </button>
-              </div>
-            ) : (
-              <div className="pt-4 border-t border-slate-800 text-center">
-                <span className="text-xs text-slate-400 italic">
-                  Ingresa la clave abajo para modificar
-                </span>
-              </div>
-            )}
           </div>
-
         </div>
 
-        {/* PIN Security Section */}
-        {!isAuthenticated ? (
-          <div className="max-w-md mx-auto w-full bg-slate-900/80 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-xl flex flex-col items-center">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 mb-4">
-              <Lock className="w-6 h-6" />
-            </div>
-            <h3 className="text-lg font-bold text-white mb-1">Clave de Seguridad</h3>
-            <p className="text-xs text-slate-400 text-center mb-6">
-              Ingresa el código PIN <span className="font-mono text-indigo-300 font-semibold bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-800/40">0000</span> para desbloquear la suma y resta de puntos.
-            </p>
-
-            {/* PIN Dots Display */}
-            <div className="flex gap-4 mb-6">
-              {[0, 1, 2, 3].map((idx) => (
-                <div
-                  key={idx}
-                  className={`w-4 h-4 rounded-full border-2 transition-all duration-200 ${
-                    pinInput.length > idx
-                      ? 'bg-indigo-500 border-indigo-400 scale-110 shadow-lg shadow-indigo-500/50'
-                      : 'border-slate-700 bg-slate-800/50'
-                  }`}
-                />
-              ))}
-            </div>
-
-            {pinError && (
-              <div className="flex items-center gap-1.5 text-rose-400 text-xs font-semibold mb-4 bg-rose-500/10 px-3 py-1.5 rounded-lg border border-rose-500/20">
-                <AlertCircle className="w-4 h-4" />
-                <span>{pinError}</span>
-              </div>
+        {/* Sección Andy */}
+        <div className="flex flex-col justify-center py-8">
+          <div className="flex items-baseline justify-between mb-2">
+            <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
+              II. Andy
+            </span>
+            {points.andy > points.vivi && (
+              <span className="flex items-center gap-1 text-[11px] tracking-widest uppercase font-mono text-stone-600">
+                <Sparkles className="w-3 h-3 text-amber-600" />
+                Líder
+              </span>
             )}
+          </div>
 
-            {/* Numeric Keypad for fast input */}
-            <div className="grid grid-cols-3 gap-2.5 w-full max-w-xs mb-3">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '✓'].map((key) => {
+          <div className="flex items-center justify-between">
+            <div className="font-mono-num text-7xl font-light text-stone-900 tracking-tighter">
+              {String(points.andy).padStart(2, '0')}
+            </div>
+
+            {/* Controles integrados sin cards */}
+            <div className="flex items-center gap-3">
+              <button
+                disabled={isSyncing || points.andy <= 0}
+                onClick={() => modifyPoints('andy', -1)}
+                className="w-12 h-12 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                title="Restar 1"
+              >
+                <Minus className="w-5 h-5 stroke-[1.5]" />
+              </button>
+              <button
+                disabled={isSyncing}
+                onClick={() => modifyPoints('andy', 1)}
+                className="w-12 h-12 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-sm"
+                title="Sumar 1"
+              >
+                <Plus className="w-5 h-5 stroke-[1.5]" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </main>
+
+      {/* Pie de página con textura de grabado sutil */}
+      <footer className="pt-4 border-t border-stone-800/15 flex items-center justify-between text-[11px] font-mono text-stone-400">
+        <span className="tracking-widest uppercase">Cloudflare Realtime</span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-stone-700 inline-block"></span>
+          {isAuthenticated ? 'Autorizado' : 'Solo lectura'}
+        </span>
+      </footer>
+
+      {/* Modal Bottom Sheet / Teclado para PIN '0000' optimizado para Mobile */}
+      {showPinModal && (
+        <div className="fixed inset-0 z-50 bg-[#1c1917]/50 backdrop-blur-xs flex flex-col justify-end">
+          <div className="w-full max-w-md mx-auto bg-[#f7f4ec] border-t border-stone-800/20 px-6 pt-5 pb-8 rounded-t-3xl shadow-2xl relative">
+            <button
+              onClick={() => {
+                setShowPinModal(false);
+                setPinInput('');
+                setPinError('');
+              }}
+              className="absolute top-5 right-5 p-2 text-stone-400 hover:text-stone-900 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="text-center mb-6">
+              <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block mb-1">
+                Seguridad
+              </span>
+              <h3 className="text-lg font-cinzel text-stone-900 font-semibold">
+                Ingresa la clave
+              </h3>
+              <p className="text-xs text-stone-500 font-mono mt-1">
+                {pinError ? (
+                  <span className="text-stone-900 font-bold">{pinError}</span>
+                ) : (
+                  'Ingresa 0000 para habilitar la suma o resta'
+                )}
+              </p>
+
+              {/* Indicadores de 4 dígitos */}
+              <div className="flex justify-center gap-3 mt-4">
+                {[0, 1, 2, 3].map((idx) => (
+                  <div
+                    key={idx}
+                    className={`w-3.5 h-3.5 rounded-full border transition-all duration-200 ${
+                      pinInput.length > idx
+                        ? 'bg-stone-900 border-stone-900 scale-110'
+                        : 'border-stone-400 bg-transparent'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Teclado numérico sobrio */}
+            <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => {
                 if (key === 'C') {
                   return (
                     <button
                       key={key}
                       onClick={() => setPinInput('')}
-                      className="h-12 rounded-xl bg-slate-800/50 hover:bg-slate-800 text-slate-400 font-bold active:scale-95 transition cursor-pointer text-sm"
+                      className="h-13 rounded-2xl border border-stone-800/15 text-stone-500 font-mono text-xs font-semibold hover:border-stone-800 active:scale-95 transition cursor-pointer"
                     >
-                      DEL
+                      CLEAR
                     </button>
                   );
                 }
-                if (key === '✓') {
+                if (key === '←') {
                   return (
                     <button
                       key={key}
-                      onClick={() => handlePinSubmit()}
-                      className="h-12 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold active:scale-95 transition cursor-pointer flex items-center justify-center shadow-md shadow-indigo-600/30"
+                      onClick={() => setPinInput((prev) => prev.slice(0, -1))}
+                      className="h-13 rounded-2xl border border-stone-800/15 text-stone-500 font-mono text-xs font-semibold hover:border-stone-800 active:scale-95 transition cursor-pointer"
                     >
-                      <CheckCircle2 className="w-5 h-5" />
+                      DEL
                     </button>
                   );
                 }
@@ -476,7 +405,7 @@ export default function App() {
                   <button
                     key={key}
                     onClick={() => handlePinDigit(key)}
-                    className="h-12 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 active:bg-indigo-600 font-semibold text-lg text-slate-200 active:scale-95 transition border border-slate-700/40 cursor-pointer"
+                    className="h-13 rounded-2xl border border-stone-800/20 bg-[#f7f4ec] text-stone-900 font-mono-num text-xl hover:border-stone-900 active:bg-stone-900 active:text-[#f7f4ec] active:scale-95 transition cursor-pointer"
                   >
                     {key}
                   </button>
@@ -484,34 +413,8 @@ export default function App() {
               })}
             </div>
           </div>
-        ) : (
-          <div className="max-w-md mx-auto w-full bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400">
-                <CheckCircle2 className="w-5 h-5" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-emerald-300">Modo de edición desbloqueado</p>
-                <p className="text-xs text-emerald-400/70">Puedes sumar o restar puntos libremente</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setIsAuthenticated(false);
-                notify('Sesión de edición bloqueada');
-              }}
-              className="text-xs font-bold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-3 py-1.5 rounded-lg border border-rose-500/30 transition cursor-pointer"
-            >
-              Cerrar sesión
-            </button>
-          </div>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="max-w-4xl mx-auto w-full text-center py-4 border-t border-slate-800/60 text-xs text-slate-500">
-        Cloudflare Pages & Realtime Durable Objects • Desarrollado para Vivi y Andy
-      </footer>
+        </div>
+      )}
     </div>
   );
 }
