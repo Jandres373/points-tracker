@@ -1,9 +1,4 @@
-import { PointsTrackerDO } from "./durable-object";
-
-export { PointsTrackerDO };
-
 interface Env {
-  POINTS_TRACKER_DO?: DurableObjectNamespace;
   POINTS_KV?: KVNamespace;
   SECURITY_PIN?: string;
 }
@@ -11,56 +6,84 @@ interface Env {
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
 
-  // Si Durable Object está disponible y configurado
-  if (env.POINTS_TRACKER_DO) {
-    const id = env.POINTS_TRACKER_DO.idFromName("global_points_room");
-    const obj = env.POINTS_TRACKER_DO.get(id);
-    return obj.fetch(request);
+  // Headers CORS para respuestas limpias
+  const headers = {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+
+  if (request.method === "OPTIONS") {
+    return new Response(null, { headers });
   }
 
-  // Fallback con Cloudflare KV
+  // GET: Obtener puntos actuales
   if (request.method === "GET") {
     let vivi = 0;
     let andy = 0;
+
     if (env.POINTS_KV) {
-      vivi = parseFloat((await env.POINTS_KV.get("vivi")) || "0");
-      andy = parseFloat((await env.POINTS_KV.get("andy")) || "0");
+      const v = await env.POINTS_KV.get("vivi");
+      const a = await env.POINTS_KV.get("andy");
+      if (v !== null) vivi = parseFloat(v);
+      if (a !== null) andy = parseFloat(a);
     }
-    return Response.json({ vivi, andy });
+
+    return new Response(JSON.stringify({ vivi, andy }), { headers });
   }
 
+  // POST: Modificar puntos
   if (request.method === "POST") {
     try {
-      const body = await request.json() as { person: string; delta: number; pin: string };
+      const body = (await request.json()) as { person: string; delta: number; pin: string };
       const validPin = env.SECURITY_PIN || "0000";
 
       if (body.pin !== validPin) {
-        return Response.json({ error: "Clave de seguridad incorrecta" }, { status: 403 });
+        return new Response(
+          JSON.stringify({ error: "Clave de seguridad incorrecta" }),
+          { status: 403, headers }
+        );
       }
 
-      const person = body.person?.toLowerCase();
+      const person = body.person?.toLowerCase()?.trim();
       if (person !== "vivi" && person !== "andy") {
-        return Response.json({ error: "Persona inválida" }, { status: 400 });
+        return new Response(
+          JSON.stringify({ error: "Persona inválida" }),
+          { status: 400, headers }
+        );
       }
 
       let current = 0;
       if (env.POINTS_KV) {
-        current = parseFloat((await env.POINTS_KV.get(person)) || "0");
+        const stored = await env.POINTS_KV.get(person);
+        if (stored !== null) current = parseFloat(stored);
       }
-      const updatedVal = Math.max(0, Math.round((current + Number(body.delta || 0)) * 10) / 10);
+
+      const delta = Number(body.delta || 0);
+      const updatedVal = Math.max(0, Math.round((current + delta) * 10) / 10);
 
       if (env.POINTS_KV) {
         await env.POINTS_KV.put(person, updatedVal.toString());
-        const vivi = parseFloat((await env.POINTS_KV.get("vivi")) || "0");
-        const andy = parseFloat((await env.POINTS_KV.get("andy")) || "0");
-        return Response.json({ vivi, andy });
+        const v = (await env.POINTS_KV.get("vivi")) || "0";
+        const a = (await env.POINTS_KV.get("andy")) || "0";
+        return new Response(
+          JSON.stringify({ vivi: parseFloat(v), andy: parseFloat(a) }),
+          { headers }
+        );
       }
 
-      return Response.json({ [person]: updatedVal });
+      return new Response(
+        JSON.stringify({ [person]: updatedVal }),
+        { headers }
+      );
     } catch (err: any) {
-      return Response.json({ error: err.message || "Error procesando solicitud" }, { status: 400 });
+      return new Response(
+        JSON.stringify({ error: err.message || "Error procesando solicitud" }),
+        { status: 400, headers }
+      );
     }
   }
 
-  return new Response("Method Not Allowed", { status: 405 });
+  return new Response("Method Not Allowed", { status: 405, headers });
 };
