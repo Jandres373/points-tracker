@@ -73,7 +73,7 @@ export default function App() {
 
     connect();
 
-    // Fallback polling de respaldo
+    // Sincronización REST de respaldo periódico
     const pollInterval = setInterval(async () => {
       if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
         try {
@@ -89,7 +89,7 @@ export default function App() {
           }
         } catch (e) {}
       }
-    }, 5000);
+    }, 4000);
 
     return () => {
       clearTimeout(reconnectTimeout);
@@ -239,7 +239,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* Contenido Principal Mobile: Secciones con soporte de +0.5 y -0.5 */}
+      {/* Contenido Principal Mobile: Secciones sin etiquetas de líder */}
       <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-4">
         
         {/* Sección Vivi */}
@@ -248,11 +248,6 @@ export default function App() {
             <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
               I. Vivi
             </span>
-            {points.vivi > points.andy && (
-              <span className="text-[11px] tracking-widest uppercase font-mono text-stone-700 font-medium">
-                • LÍDER •
-              </span>
-            )}
           </div>
 
           <div className="flex items-center justify-between">
@@ -311,11 +306,6 @@ export default function App() {
             <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
               II. Andy
             </span>
-            {points.andy > points.vivi && (
-              <span className="text-[11px] tracking-widest uppercase font-mono text-stone-700 font-medium">
-                • LÍDER •
-              </span>
-            )}
           </div>
 
           <div className="flex items-center justify-between">
