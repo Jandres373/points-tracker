@@ -17,8 +17,8 @@ export default function App() {
     return { vivi: 0, andy: 0 };
   });
 
+  // Acceso protegido: inicia siempre bloqueado hasta que ingrese el PIN 0000
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [pinInput, setPinInput] = useState<string>('');
   const [pinError, setPinError] = useState<string>('');
   const [toast, setToast] = useState<string | null>(null);
@@ -42,7 +42,6 @@ export default function App() {
 
   // Obtener puntos del servidor
   const fetchPoints = async () => {
-    // Si el usuario está tocando o hay cambios encolados, no sobrescribir local
     if (isEditingRef.current || pendingUpdatesRef.current.vivi !== undefined || pendingUpdatesRef.current.andy !== undefined) {
       return;
     }
@@ -76,9 +75,8 @@ export default function App() {
       if (next.length === 4) {
         if (next === '0000') {
           setIsAuthenticated(true);
-          setShowPinModal(false);
           setPinInput('');
-          showToast('Edición desbloqueada');
+          showToast('Bienvenido');
         } else {
           setPinError('Clave incorrecta');
           setTimeout(() => {
@@ -111,12 +109,9 @@ export default function App() {
     }
   };
 
-  // Modificar puntos por botones (+1, -1, +0.5, -0.5) con Debounce/Buffer
+  // Modificar puntos por botones con debounce para toques rápidos
   const modifyPoints = (person: 'vivi' | 'andy', delta: number) => {
-    if (!isAuthenticated) {
-      setShowPinModal(true);
-      return;
-    }
+    if (!isAuthenticated) return;
 
     isEditingRef.current = true;
 
@@ -125,14 +120,13 @@ export default function App() {
       const newVal = Math.max(0, Math.round((currentVal + delta) * 10) / 10);
       pendingUpdatesRef.current[person] = newVal;
 
-      // Reiniciar debounce para agrupar toques muy rápidos
       if (debounceTimerRef.current[person]) {
         clearTimeout(debounceTimerRef.current[person]);
       }
 
       debounceTimerRef.current[person] = setTimeout(() => {
         sendFinalUpdate(person, newVal);
-      }, 500); // 500ms tras el último toque guarda el valor exacto final
+      }, 500);
 
       return {
         ...prev,
@@ -143,7 +137,7 @@ export default function App() {
 
   // Guardar edición manual directa del número
   const handleSaveManual = async () => {
-    if (!manualModal) return;
+    if (!manualModal || !isAuthenticated) return;
     const parsed = parseFloat(manualModal.value);
     if (isNaN(parsed) || parsed < 0) {
       showToast('Ingresa un número válido');
@@ -164,10 +158,7 @@ export default function App() {
   };
 
   const handleOpenManual = (person: 'vivi' | 'andy') => {
-    if (!isAuthenticated) {
-      setShowPinModal(true);
-      return;
-    }
+    if (!isAuthenticated) return;
     setManualModal({
       person,
       value: points[person].toString(),
@@ -210,7 +201,7 @@ export default function App() {
         />
       ))}
 
-      {/* Notificación Toast minimalista */}
+      {/* Notificación Toast */}
       {toast && (
         <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1c1917] text-[#f7f4ec] text-xs font-mono tracking-wider py-1.5 px-4 rounded-full shadow-lg border border-stone-800 flex items-center gap-2">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
@@ -218,190 +209,256 @@ export default function App() {
         </div>
       )}
 
-      {/* Encabezado */}
-      <header className="flex items-center justify-between pt-2 pb-5 border-b border-stone-800/15">
-        <div>
-          <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
-            Registro de Puntos
-          </span>
-          <h1 className="text-xl font-normal tracking-tight text-stone-900 font-cinzel">
-            Vivi & Andy
-          </h1>
-        </div>
+      {/* CONTENIDO DE LA APP: Se aplica blur completo e interactividad nula si no está autenticado */}
+      <div className={`flex flex-col flex-1 justify-between transition-all duration-500 ${
+        !isAuthenticated ? 'filter blur-md opacity-30 pointer-events-none select-none scale-[0.98]' : 'filter-none opacity-100 scale-100'
+      }`}>
+        {/* Encabezado */}
+        <header className="flex items-center justify-between pt-2 pb-5 border-b border-stone-800/15">
+          <div>
+            <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
+              Registro de Puntos
+            </span>
+            <h1 className="text-xl font-normal tracking-tight text-stone-900 font-cinzel">
+              Vivi & Andy
+            </h1>
+          </div>
 
-        {/* Botón de bloqueo/desbloqueo */}
-        <button
-          onClick={() => {
-            if (isAuthenticated) {
+          {/* Botón para bloquear y volver al PIN */}
+          <button
+            onClick={() => {
               setIsAuthenticated(false);
-              showToast('Edición bloqueada');
-            } else {
-              setShowPinModal(true);
-            }
-          }}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-800/20 hover:border-stone-800 bg-[#f7f4ec]/80 backdrop-blur-xs text-stone-800 text-xs font-mono transition-all active:scale-95 cursor-pointer"
-        >
-          {isAuthenticated ? (
-            <>
-              <Unlock className="w-3.5 h-3.5 text-stone-900" />
-              <span className="text-[11px] uppercase tracking-wider font-semibold">Editar</span>
-            </>
-          ) : (
-            <>
-              <Lock className="w-3.5 h-3.5 text-stone-400" />
-              <span className="text-[11px] uppercase tracking-wider text-stone-500">0000</span>
-            </>
-          )}
-        </button>
-      </header>
+              showToast('Sesión bloqueada');
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-800/20 hover:border-stone-800 bg-[#f7f4ec]/80 backdrop-blur-xs text-stone-800 text-xs font-mono transition-all active:scale-95 cursor-pointer"
+            title="Bloquear acceso"
+          >
+            <Unlock className="w-3.5 h-3.5 text-stone-900" />
+            <span className="text-[11px] uppercase tracking-wider font-semibold">Bloquear</span>
+          </button>
+        </header>
 
-      {/* Contenido Principal Mobile: Secciones con tap directo en números */}
-      <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-4">
-        
-        {/* Sección Vivi */}
-        <div className="flex flex-col justify-center py-6">
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
-              I. Vivi
-            </span>
-            <span className="text-[10px] uppercase font-mono text-stone-400 tracking-wider">
-              {isAuthenticated ? 'Toca el número para editar' : ''}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            {/* Número con soporte Click/Tap para edición directa */}
-            <button
-              onClick={() => handleOpenManual('vivi')}
-              className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
-              title="Toca para escribir el número directamente"
-            >
-              <span className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter group-hover:text-stone-700">
-                {formatPoints(points.vivi)}
+        {/* Contenido Principal Mobile: Secciones con números editables */}
+        <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-4">
+          
+          {/* Sección Vivi */}
+          <div className="flex flex-col justify-center py-6">
+            <div className="flex items-baseline justify-between mb-1">
+              <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
+                I. Vivi
               </span>
-              {isAuthenticated && (
+              <span className="text-[10px] uppercase font-mono text-stone-400 tracking-wider">
+                Toca el número para editar
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              {/* Número con click/tap directo para modificar */}
+              <button
+                onClick={() => handleOpenManual('vivi')}
+                className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
+                title="Toca para ingresar el número manualmente"
+              >
+                <span className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter group-hover:text-stone-700">
+                  {formatPoints(points.vivi)}
+                </span>
                 <Edit2 className="w-3.5 h-3.5 text-stone-400 opacity-40 group-hover:opacity-100 transition" />
-              )}
-            </button>
+              </button>
 
-            {/* Controles de puntuación (+0.5, +1, -0.5, -1) */}
-            <div className="flex items-center gap-2">
-              <div className="flex flex-col gap-1.5">
-                <button
-                  disabled={points.vivi < 0.5}
-                  onClick={() => modifyPoints('vivi', -0.5)}
-                  className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
-                  title="Restar 0.5"
-                >
-                  -0.5
-                </button>
-                <button
-                  disabled={points.vivi < 1}
-                  onClick={() => modifyPoints('vivi', -1)}
-                  className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
-                  title="Restar 1"
-                >
-                  <Minus className="w-4 h-4 stroke-[1.5]" />
-                </button>
-              </div>
+              {/* Botones de acción (+0.5, +1, -0.5, -1) */}
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    disabled={points.vivi < 0.5}
+                    onClick={() => modifyPoints('vivi', -0.5)}
+                    className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                    title="Restar 0.5"
+                  >
+                    -0.5
+                  </button>
+                  <button
+                    disabled={points.vivi < 1}
+                    onClick={() => modifyPoints('vivi', -1)}
+                    className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                    title="Restar 1"
+                  >
+                    <Minus className="w-4 h-4 stroke-[1.5]" />
+                  </button>
+                </div>
 
-              <div className="flex flex-col gap-1.5">
-                <button
-                  onClick={() => modifyPoints('vivi', 0.5)}
-                  className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
-                  title="Sumar 0.5"
-                >
-                  +0.5
-                </button>
-                <button
-                  onClick={() => modifyPoints('vivi', 1)}
-                  className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
-                  title="Sumar 1"
-                >
-                  <Plus className="w-4 h-4 stroke-[1.5]" />
-                </button>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={() => modifyPoints('vivi', 0.5)}
+                    className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                    title="Sumar 0.5"
+                  >
+                    +0.5
+                  </button>
+                  <button
+                    onClick={() => modifyPoints('vivi', 1)}
+                    className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                    title="Sumar 1"
+                  >
+                    <Plus className="w-4 h-4 stroke-[1.5]" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Sección Andy */}
-        <div className="flex flex-col justify-center py-6">
-          <div className="flex items-baseline justify-between mb-1">
-            <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
-              II. Andy
-            </span>
-            <span className="text-[10px] uppercase font-mono text-stone-400 tracking-wider">
-              {isAuthenticated ? 'Toca el número para editar' : ''}
-            </span>
-          </div>
-
-          <div className="flex items-center justify-between">
-            {/* Número con soporte Click/Tap para edición directa */}
-            <button
-              onClick={() => handleOpenManual('andy')}
-              className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
-              title="Toca para escribir el número directamente"
-            >
-              <span className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter group-hover:text-stone-700">
-                {formatPoints(points.andy)}
+          {/* Sección Andy */}
+          <div className="flex flex-col justify-center py-6">
+            <div className="flex items-baseline justify-between mb-1">
+              <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
+                II. Andy
               </span>
-              {isAuthenticated && (
+              <span className="text-[10px] uppercase font-mono text-stone-400 tracking-wider">
+                Toca el número para editar
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              {/* Número con click/tap directo para modificar */}
+              <button
+                onClick={() => handleOpenManual('andy')}
+                className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
+                title="Toca para ingresar el número manualmente"
+              >
+                <span className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter group-hover:text-stone-700">
+                  {formatPoints(points.andy)}
+                </span>
                 <Edit2 className="w-3.5 h-3.5 text-stone-400 opacity-40 group-hover:opacity-100 transition" />
-              )}
-            </button>
+              </button>
 
-            {/* Controles de puntuación (+0.5, +1, -0.5, -1) */}
-            <div className="flex items-center gap-2">
-              <div className="flex flex-col gap-1.5">
-                <button
-                  disabled={points.andy < 0.5}
-                  onClick={() => modifyPoints('andy', -0.5)}
-                  className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
-                  title="Restar 0.5"
-                >
-                  -0.5
-                </button>
-                <button
-                  disabled={points.andy < 1}
-                  onClick={() => modifyPoints('andy', -1)}
-                  className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
-                  title="Restar 1"
-                >
-                  <Minus className="w-4 h-4 stroke-[1.5]" />
-                </button>
-              </div>
+              {/* Botones de acción (+0.5, +1, -0.5, -1) */}
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    disabled={points.andy < 0.5}
+                    onClick={() => modifyPoints('andy', -0.5)}
+                    className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                    title="Restar 0.5"
+                  >
+                    -0.5
+                  </button>
+                  <button
+                    disabled={points.andy < 1}
+                    onClick={() => modifyPoints('andy', -1)}
+                    className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                    title="Restar 1"
+                  >
+                    <Minus className="w-4 h-4 stroke-[1.5]" />
+                  </button>
+                </div>
 
-              <div className="flex flex-col gap-1.5">
-                <button
-                  onClick={() => modifyPoints('andy', 0.5)}
-                  className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
-                  title="Sumar 0.5"
-                >
-                  +0.5
-                </button>
-                <button
-                  onClick={() => modifyPoints('andy', 1)}
-                  className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
-                  title="Sumar 1"
-                >
-                  <Plus className="w-4 h-4 stroke-[1.5]" />
-                </button>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    onClick={() => modifyPoints('andy', 0.5)}
+                    className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                    title="Sumar 0.5"
+                  >
+                    +0.5
+                  </button>
+                  <button
+                    onClick={() => modifyPoints('andy', 1)}
+                    className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                    title="Sumar 1"
+                  >
+                    <Plus className="w-4 h-4 stroke-[1.5]" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
+
+        </main>
+
+        {/* Pie de página */}
+        <footer className="pt-4 border-t border-stone-800/15 flex items-center justify-between text-[11px] font-mono text-stone-400">
+          <span className="tracking-widest uppercase">Cloudflare Realtime</span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-stone-700 inline-block"></span>
+            Autorizado
+          </span>
+        </footer>
+      </div>
+
+      {/* BLOQUEO TOTAL / PANTALLA DE ACCESO CON BLUR SI NO ESTÁ AUTENTICADO */}
+      {!isAuthenticated && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[#f7f4ec]/60 backdrop-blur-xl">
+          <div className="w-full max-w-xs text-center flex flex-col items-center">
+            
+            <div className="w-12 h-12 rounded-full border border-stone-800/20 bg-[#f7f4ec] flex items-center justify-center text-stone-800 mb-4 shadow-sm">
+              <Lock className="w-5 h-5 stroke-[1.5]" />
+            </div>
+
+            <span className="text-[10px] uppercase tracking-[0.3em] text-stone-500 font-cinzel block mb-1">
+              Registro Privado
+            </span>
+            <h2 className="text-xl font-cinzel text-stone-900 font-semibold tracking-tight mb-2">
+              Vivi & Andy
+            </h2>
+            <p className="text-xs text-stone-500 font-mono mb-6">
+              {pinError ? (
+                <span className="text-rose-700 font-semibold">{pinError}</span>
+              ) : (
+                'Ingresa la clave para acceder'
+              )}
+            </p>
+
+            {/* Indicadores de 4 dígitos */}
+            <div className="flex justify-center gap-3.5 mb-8">
+              {[0, 1, 2, 3].map((idx) => (
+                <div
+                  key={idx}
+                  className={`w-3.5 h-3.5 rounded-full border transition-all duration-200 ${
+                    pinInput.length > idx
+                      ? 'bg-stone-900 border-stone-900 scale-110 shadow-xs'
+                      : 'border-stone-400 bg-transparent'
+                  }`}
+                />
+              ))}
+            </div>
+
+            {/* Teclado numérico sobrio */}
+            <div className="grid grid-cols-3 gap-2.5 w-full">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => {
+                if (key === 'C') {
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setPinInput('')}
+                      className="h-13 rounded-2xl border border-stone-800/15 text-stone-500 font-mono text-xs font-semibold hover:border-stone-800 active:scale-95 transition cursor-pointer"
+                    >
+                      CLEAR
+                    </button>
+                  );
+                }
+                if (key === '←') {
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setPinInput((prev) => prev.slice(0, -1))}
+                      className="h-13 rounded-2xl border border-stone-800/15 text-stone-500 font-mono text-xs font-semibold hover:border-stone-800 active:scale-95 transition cursor-pointer"
+                    >
+                      DEL
+                    </button>
+                  );
+                }
+                return (
+                  <button
+                    key={key}
+                    onClick={() => handlePinDigit(key)}
+                    className="h-13 rounded-2xl border border-stone-800/20 bg-[#f7f4ec] text-stone-900 font-mono-num text-xl hover:border-stone-900 active:bg-stone-900 active:text-[#f7f4ec] active:scale-95 transition cursor-pointer shadow-xs"
+                  >
+                    {key}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-
-      </main>
-
-      {/* Pie de página */}
-      <footer className="pt-4 border-t border-stone-800/15 flex items-center justify-between text-[11px] font-mono text-stone-400">
-        <span className="tracking-widest uppercase">Cloudflare Realtime</span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-stone-700 inline-block"></span>
-          {isAuthenticated ? 'Autorizado' : 'Solo lectura'}
-        </span>
-      </footer>
+      )}
 
       {/* Modal para Modificar Número Manualmente */}
       {manualModal && (
@@ -447,91 +504,6 @@ export default function App() {
                 <Check className="w-4 h-4" />
                 Guardar
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Bottom Sheet / Teclado para PIN '0000' */}
-      {showPinModal && (
-        <div className="fixed inset-0 z-50 bg-[#1c1917]/50 backdrop-blur-xs flex flex-col justify-end">
-          <div className="w-full max-w-md mx-auto bg-[#f7f4ec] border-t border-stone-800/20 px-6 pt-5 pb-8 rounded-t-3xl shadow-2xl relative">
-            <button
-              onClick={() => {
-                setShowPinModal(false);
-                setPinInput('');
-                setPinError('');
-              }}
-              className="absolute top-5 right-5 p-2 text-stone-400 hover:text-stone-900 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="text-center mb-6">
-              <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block mb-1">
-                Seguridad
-              </span>
-              <h3 className="text-lg font-cinzel text-stone-900 font-semibold">
-                Ingresa la clave
-              </h3>
-              <p className="text-xs text-stone-500 font-mono mt-1">
-                {pinError ? (
-                  <span className="text-stone-900 font-bold">{pinError}</span>
-                ) : (
-                  'Ingresa 0000 para habilitar la edición'
-                )}
-              </p>
-
-              {/* Indicadores de 4 dígitos */}
-              <div className="flex justify-center gap-3 mt-4">
-                {[0, 1, 2, 3].map((idx) => (
-                  <div
-                    key={idx}
-                    className={`w-3.5 h-3.5 rounded-full border transition-all duration-200 ${
-                      pinInput.length > idx
-                        ? 'bg-stone-900 border-stone-900 scale-110'
-                        : 'border-stone-400 bg-transparent'
-                    }`}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Teclado numérico */}
-            <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => {
-                if (key === 'C') {
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setPinInput('')}
-                      className="h-13 rounded-2xl border border-stone-800/15 text-stone-500 font-mono text-xs font-semibold hover:border-stone-800 active:scale-95 transition cursor-pointer"
-                    >
-                      CLEAR
-                    </button>
-                  );
-                }
-                if (key === '←') {
-                  return (
-                    <button
-                      key={key}
-                      onClick={() => setPinInput((prev) => prev.slice(0, -1))}
-                      className="h-13 rounded-2xl border border-stone-800/15 text-stone-500 font-mono text-xs font-semibold hover:border-stone-800 active:scale-95 transition cursor-pointer"
-                    >
-                      DEL
-                    </button>
-                  );
-                }
-                return (
-                  <button
-                    key={key}
-                    onClick={() => handlePinDigit(key)}
-                    className="h-13 rounded-2xl border border-stone-800/20 bg-[#f7f4ec] text-stone-900 font-mono-num text-xl hover:border-stone-900 active:bg-stone-900 active:text-[#f7f4ec] active:scale-95 transition cursor-pointer"
-                  >
-                    {key}
-                  </button>
-                );
-              })}
             </div>
           </div>
         </div>
