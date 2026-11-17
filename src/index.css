@@ -23,32 +23,25 @@
   }
 }
 
-/* Glitter shimmer keyframes */
+/* Glitter shimmer animaciones sobre puntos discretos */
 @keyframes glitterTwinkle {
   0%, 100% {
     opacity: 0.15;
-    transform: scale(0.8) rotate(0deg);
-    filter: drop-shadow(0 0 2px rgba(212, 175, 55, 0.2));
+    transform: scale(0.7);
+    box-shadow: 0 0 2px rgba(212, 175, 55, 0.2);
   }
   50% {
     opacity: 0.85;
-    transform: scale(1.15) rotate(180deg);
-    filter: drop-shadow(0 0 8px rgba(245, 215, 110, 0.7));
+    transform: scale(1.25);
+    box-shadow: 0 0 8px rgba(212, 175, 55, 0.7);
   }
 }
 
-@keyframes goldShimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
-}
-
-.glitter-particle {
+.glitter-dot {
   position: absolute;
   pointer-events: none;
+  border-radius: 9999px;
+  background-color: #d4af37;
   animation: glitterTwinkle ease-in-out infinite;
 }
 
@@ -67,12 +60,4 @@
   opacity: 0.04;
   z-index: 50;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-}
-
-.ink-border-b {
-  border-bottom: 1px solid rgba(23, 21, 19, 0.12);
-}
-
-.ink-border-t {
-  border-top: 1px solid rgba(23, 21, 19, 0.12);
 }

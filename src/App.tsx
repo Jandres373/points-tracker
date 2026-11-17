@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Lock, Unlock, Minus, Plus, X } from 'lucide-react';
+import { Lock, Unlock, Minus, Plus, X } from 'lucide-react';
 
 interface PointsState {
   vivi: number;
@@ -73,7 +73,7 @@ export default function App() {
 
     connect();
 
-    // Fallback polling ligero
+    // Fallback polling de respaldo
     const pollInterval = setInterval(async () => {
       if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
         try {
@@ -130,7 +130,7 @@ export default function App() {
     setIsSyncing(true);
     setPoints((prev) => ({
       ...prev,
-      [person]: Math.max(0, prev[person] + delta),
+      [person]: Math.max(0, Math.round((prev[person] + delta) * 10) / 10),
     }));
 
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -158,47 +158,51 @@ export default function App() {
     }
   };
 
-  // Posiciones de partículas glitter decorativas
-  const glitterPoints = [
-    { top: '12%', left: '8%', delay: '0s', duration: '3.2s', size: 10 },
-    { top: '18%', right: '12%', delay: '1.4s', duration: '2.8s', size: 13 },
-    { top: '48%', left: '4%', delay: '0.7s', duration: '3.6s', size: 9 },
-    { top: '53%', right: '7%', delay: '2.1s', duration: '4s', size: 11 },
-    { top: '84%', left: '14%', delay: '1.8s', duration: '3s', size: 12 },
-    { top: '78%', right: '15%', delay: '0.4s', duration: '3.4s', size: 9 },
+  const formatPoints = (val: number) => {
+    return Number.isInteger(val) ? val.toString() : val.toFixed(1);
+  };
+
+  // Posiciones de partículas glitter de luz sutil
+  const glitterDots = [
+    { top: '10%', left: '12%', delay: '0s', duration: '3.4s', size: 3 },
+    { top: '16%', right: '14%', delay: '1.2s', duration: '2.6s', size: 4 },
+    { top: '38%', left: '7%', delay: '0.8s', duration: '3.8s', size: 3 },
+    { top: '44%', right: '9%', delay: '2.2s', duration: '4s', size: 4.5 },
+    { top: '72%', left: '11%', delay: '1.6s', duration: '3.2s', size: 3.5 },
+    { top: '82%', right: '12%', delay: '0.4s', duration: '3.5s', size: 4 },
   ];
 
   return (
-    <div className="relative min-h-[100dvh] flex flex-col justify-between max-w-md mx-auto px-6 py-7 select-none overflow-hidden">
+    <div className="relative min-h-[100dvh] flex flex-col justify-between max-w-md mx-auto px-6 py-6 select-none overflow-hidden">
       {/* Grano de papel overlay */}
       <div className="paper-grain" />
 
-      {/* Partículas glitter flotantes sutiles */}
-      {glitterPoints.map((pt, i) => (
+      {/* Puntos luminosos de glitter sutil */}
+      {glitterDots.map((pt, i) => (
         <div
           key={i}
-          className="glitter-particle text-amber-700/60"
+          className="glitter-dot"
           style={{
             top: pt.top,
             left: pt.left,
             right: pt.right,
+            width: `${pt.size}px`,
+            height: `${pt.size}px`,
             animationDelay: pt.delay,
             animationDuration: pt.duration,
           }}
-        >
-          <Sparkles style={{ width: pt.size, height: pt.size }} />
-        </div>
+        />
       ))}
 
       {/* Notificación Toast minimalista */}
       {toast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1c1917] text-[#f7f4ec] text-xs font-mono tracking-wider py-1.5 px-4 rounded-full shadow-lg border border-stone-800 flex items-center gap-2 animate-fade-in">
-          <Sparkles className="w-3 h-3 text-amber-300" />
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-[#1c1917] text-[#f7f4ec] text-xs font-mono tracking-wider py-1.5 px-4 rounded-full shadow-lg border border-stone-800 flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
           <span>{toast}</span>
         </div>
       )}
 
-      {/* Encabezado: Tipografía editorial, sobria, sin cajas */}
+      {/* Encabezado */}
       <header className="flex items-center justify-between pt-2 pb-5 border-b border-stone-800/15">
         <div>
           <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
@@ -209,7 +213,7 @@ export default function App() {
           </h1>
         </div>
 
-        {/* Botón de bloqueo/desbloqueo minimalista */}
+        {/* Botón de bloqueo/desbloqueo */}
         <button
           onClick={() => {
             if (isAuthenticated) {
@@ -235,94 +239,138 @@ export default function App() {
         </button>
       </header>
 
-      {/* Contenido Principal Mobile-First: Formato continuo de pliego/página */}
-      <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-6">
+      {/* Contenido Principal Mobile: Secciones con soporte de +0.5 y -0.5 */}
+      <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-4">
         
         {/* Sección Vivi */}
-        <div className="flex flex-col justify-center py-8">
-          <div className="flex items-baseline justify-between mb-2">
+        <div className="flex flex-col justify-center py-6">
+          <div className="flex items-baseline justify-between mb-1">
             <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
               I. Vivi
             </span>
             {points.vivi > points.andy && (
-              <span className="flex items-center gap-1 text-[11px] tracking-widest uppercase font-mono text-stone-600">
-                <Sparkles className="w-3 h-3 text-amber-600" />
-                Líder
+              <span className="text-[11px] tracking-widest uppercase font-mono text-stone-700 font-medium">
+                • LÍDER •
               </span>
             )}
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="font-mono-num text-7xl font-light text-stone-900 tracking-tighter">
-              {String(points.vivi).padStart(2, '0')}
+            <div className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter">
+              {formatPoints(points.vivi)}
             </div>
 
-            {/* Controles integrados sin cards */}
-            <div className="flex items-center gap-3">
-              <button
-                disabled={isSyncing || points.vivi <= 0}
-                onClick={() => modifyPoints('vivi', -1)}
-                className="w-12 h-12 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
-                title="Restar 1"
-              >
-                <Minus className="w-5 h-5 stroke-[1.5]" />
-              </button>
-              <button
-                disabled={isSyncing}
-                onClick={() => modifyPoints('vivi', 1)}
-                className="w-12 h-12 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-sm"
-                title="Sumar 1"
-              >
-                <Plus className="w-5 h-5 stroke-[1.5]" />
-              </button>
+            {/* Controles de puntuación (Entero y Medio punto) */}
+            <div className="flex items-center gap-2">
+              {/* Botones de Resta */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  disabled={isSyncing || points.vivi < 0.5}
+                  onClick={() => modifyPoints('vivi', -0.5)}
+                  className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                  title="Restar 0.5"
+                >
+                  -0.5
+                </button>
+                <button
+                  disabled={isSyncing || points.vivi < 1}
+                  onClick={() => modifyPoints('vivi', -1)}
+                  className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                  title="Restar 1"
+                >
+                  <Minus className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+
+              {/* Botones de Suma */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  disabled={isSyncing}
+                  onClick={() => modifyPoints('vivi', 0.5)}
+                  className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                  title="Sumar 0.5"
+                >
+                  +0.5
+                </button>
+                <button
+                  disabled={isSyncing}
+                  onClick={() => modifyPoints('vivi', 1)}
+                  className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                  title="Sumar 1"
+                >
+                  <Plus className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Sección Andy */}
-        <div className="flex flex-col justify-center py-8">
-          <div className="flex items-baseline justify-between mb-2">
+        <div className="flex flex-col justify-center py-6">
+          <div className="flex items-baseline justify-between mb-1">
             <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
               II. Andy
             </span>
             {points.andy > points.vivi && (
-              <span className="flex items-center gap-1 text-[11px] tracking-widest uppercase font-mono text-stone-600">
-                <Sparkles className="w-3 h-3 text-amber-600" />
-                Líder
+              <span className="text-[11px] tracking-widest uppercase font-mono text-stone-700 font-medium">
+                • LÍDER •
               </span>
             )}
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="font-mono-num text-7xl font-light text-stone-900 tracking-tighter">
-              {String(points.andy).padStart(2, '0')}
+            <div className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter">
+              {formatPoints(points.andy)}
             </div>
 
-            {/* Controles integrados sin cards */}
-            <div className="flex items-center gap-3">
-              <button
-                disabled={isSyncing || points.andy <= 0}
-                onClick={() => modifyPoints('andy', -1)}
-                className="w-12 h-12 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
-                title="Restar 1"
-              >
-                <Minus className="w-5 h-5 stroke-[1.5]" />
-              </button>
-              <button
-                disabled={isSyncing}
-                onClick={() => modifyPoints('andy', 1)}
-                className="w-12 h-12 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-sm"
-                title="Sumar 1"
-              >
-                <Plus className="w-5 h-5 stroke-[1.5]" />
-              </button>
+            {/* Controles de puntuación (Entero y Medio punto) */}
+            <div className="flex items-center gap-2">
+              {/* Botones de Resta */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  disabled={isSyncing || points.andy < 0.5}
+                  onClick={() => modifyPoints('andy', -0.5)}
+                  className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                  title="Restar 0.5"
+                >
+                  -0.5
+                </button>
+                <button
+                  disabled={isSyncing || points.andy < 1}
+                  onClick={() => modifyPoints('andy', -1)}
+                  className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
+                  title="Restar 1"
+                >
+                  <Minus className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
+
+              {/* Botones de Suma */}
+              <div className="flex flex-col gap-1.5">
+                <button
+                  disabled={isSyncing}
+                  onClick={() => modifyPoints('andy', 0.5)}
+                  className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                  title="Sumar 0.5"
+                >
+                  +0.5
+                </button>
+                <button
+                  disabled={isSyncing}
+                  onClick={() => modifyPoints('andy', 1)}
+                  className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
+                  title="Sumar 1"
+                >
+                  <Plus className="w-4 h-4 stroke-[1.5]" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
       </main>
 
-      {/* Pie de página con textura de grabado sutil */}
+      {/* Pie de página */}
       <footer className="pt-4 border-t border-stone-800/15 flex items-center justify-between text-[11px] font-mono text-stone-400">
         <span className="tracking-widest uppercase">Cloudflare Realtime</span>
         <span className="flex items-center gap-1.5">
@@ -331,7 +379,7 @@ export default function App() {
         </span>
       </footer>
 
-      {/* Modal Bottom Sheet / Teclado para PIN '0000' optimizado para Mobile */}
+      {/* Modal Bottom Sheet / Teclado para PIN '0000' */}
       {showPinModal && (
         <div className="fixed inset-0 z-50 bg-[#1c1917]/50 backdrop-blur-xs flex flex-col justify-end">
           <div className="w-full max-w-md mx-auto bg-[#f7f4ec] border-t border-stone-800/20 px-6 pt-5 pb-8 rounded-t-3xl shadow-2xl relative">
@@ -376,7 +424,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Teclado numérico sobrio */}
+            {/* Teclado numérico */}
             <div className="grid grid-cols-3 gap-2.5 max-w-xs mx-auto">
               {['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', '←'].map((key) => {
                 if (key === 'C') {

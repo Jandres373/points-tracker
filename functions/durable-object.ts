@@ -15,8 +15,6 @@ export class PointsTrackerDO {
   }
 
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-
     // WebSocket upgrade for realtime updates
     if (request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
@@ -50,7 +48,7 @@ export class PointsTrackerDO {
     return new Response("Not found", { status: 404 });
   }
 
-  async getPoints(): Promise<{ vivi: number; andy: number; history?: any[] }> {
+  async getPoints(): Promise<{ vivi: number; andy: number }> {
     const vivi = (await this.state.storage.get<number>("vivi")) ?? 0;
     const andy = (await this.state.storage.get<number>("andy")) ?? 0;
     return { vivi, andy };
@@ -63,12 +61,13 @@ export class PointsTrackerDO {
     }
 
     const current = (await this.state.storage.get<number>(p)) ?? 0;
-    const newPoints = Math.max(0, current + delta); // Evita números negativos o permite según necesidad
-    await this.state.storage.put(p, newPoints);
+    // Permite incrementos con decimales (como 0.5) y redondea a 1 decimal para evitar errores de precisión flotante
+    const updated = Math.max(0, Math.round((current + delta) * 10) / 10);
+    await this.state.storage.put(p, updated);
 
-    const updated = await this.getPoints();
-    this.broadcast({ type: "SYNC", data: updated });
-    return updated;
+    const points = await this.getPoints();
+    this.broadcast({ type: "SYNC", data: points });
+    return points;
   }
 
   async handleWebSocket(ws: WebSocket) {
@@ -89,15 +88,13 @@ export class PointsTrackerDO {
         }
 
         if (data.type === "UPDATE_POINTS") {
-          // data: { person: 'vivi' | 'andy', delta: number, pin: string }
           const targetPin = "0000";
           if (data.pin !== targetPin) {
             ws.send(JSON.stringify({ type: "ERROR", message: "Clave de seguridad incorrecta" }));
             return;
           }
 
-          const updated = await this.updatePoints(data.person, data.delta);
-          // broadcast ya es llamado dentro de updatePoints
+          await this.updatePoints(data.person, Number(data.delta));
         }
       } catch (e: any) {
         ws.send(JSON.stringify({ type: "ERROR", message: e.message || "Error procesando solicitud" }));

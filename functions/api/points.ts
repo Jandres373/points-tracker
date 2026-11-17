@@ -10,7 +10,6 @@ interface Env {
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
-  const url = new URL(request.url);
 
   // Si Durable Object está disponible y configurado
   if (env.POINTS_TRACKER_DO) {
@@ -19,13 +18,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return obj.fetch(request);
   }
 
-  // Fallback con Cloudflare KV si Durable Object no estuviera vinculado directamente
+  // Fallback con Cloudflare KV
   if (request.method === "GET") {
     let vivi = 0;
     let andy = 0;
     if (env.POINTS_KV) {
-      vivi = parseInt((await env.POINTS_KV.get("vivi")) || "0", 10);
-      andy = parseInt((await env.POINTS_KV.get("andy")) || "0", 10);
+      vivi = parseFloat((await env.POINTS_KV.get("vivi")) || "0");
+      andy = parseFloat((await env.POINTS_KV.get("andy")) || "0");
     }
     return Response.json({ vivi, andy });
   }
@@ -46,14 +45,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       let current = 0;
       if (env.POINTS_KV) {
-        current = parseInt((await env.POINTS_KV.get(person)) || "0", 10);
+        current = parseFloat((await env.POINTS_KV.get(person)) || "0");
       }
-      const updatedVal = Math.max(0, current + (body.delta || 0));
+      const updatedVal = Math.max(0, Math.round((current + Number(body.delta || 0)) * 10) / 10);
 
       if (env.POINTS_KV) {
         await env.POINTS_KV.put(person, updatedVal.toString());
-        const vivi = parseInt((await env.POINTS_KV.get("vivi")) || "0", 10);
-        const andy = parseInt((await env.POINTS_KV.get("andy")) || "0", 10);
+        const vivi = parseFloat((await env.POINTS_KV.get("vivi")) || "0");
+        const andy = parseFloat((await env.POINTS_KV.get("andy")) || "0");
         return Response.json({ vivi, andy });
       }
 
