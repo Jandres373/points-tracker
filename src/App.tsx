@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Lock, Unlock, Minus, Plus, X } from 'lucide-react';
 
 interface PointsState {
@@ -24,8 +24,6 @@ export default function App() {
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const socketRef = useRef<WebSocket | null>(null);
-
   useEffect(() => {
     localStorage.setItem('pts_cache', JSON.stringify(points));
   }, [points]);
@@ -35,67 +33,29 @@ export default function App() {
     setTimeout(() => setToast(null), 2400);
   };
 
-  // Conexión Cloudflare Pages Functions / WebSocket
+  // Función para obtener puntos del servidor
+  const fetchPoints = async () => {
+    try {
+      const res = await fetch('/api/points', { cache: 'no-store' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.vivi !== undefined && data.andy !== undefined) {
+          setPoints({
+            vivi: Number(data.vivi) || 0,
+            andy: Number(data.andy) || 0,
+          });
+        }
+      }
+    } catch (e) {
+      // Ignorar errores transitorios de red
+    }
+  };
+
+  // Carga inicial y sondeo periódico (Realtime polling)
   useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const wsUrl = `${protocol}//${host}/api/points`;
-
-    let ws: WebSocket;
-    let reconnectTimeout: any;
-
-    const connect = () => {
-      try {
-        ws = new WebSocket(wsUrl);
-        socketRef.current = ws;
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-            if (data.type === 'SYNC' && data.data) {
-              setPoints({
-                vivi: Number(data.data.vivi) || 0,
-                andy: Number(data.data.andy) || 0,
-              });
-            } else if (data.type === 'ERROR') {
-              showToast(data.message || 'Error en sincronización');
-            }
-          } catch (err) {}
-        };
-
-        ws.onclose = () => {
-          reconnectTimeout = setTimeout(connect, 3500);
-        };
-      } catch (e) {
-        reconnectTimeout = setTimeout(connect, 3500);
-      }
-    };
-
-    connect();
-
-    // Sincronización REST de respaldo periódico
-    const pollInterval = setInterval(async () => {
-      if (!socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
-        try {
-          const res = await fetch('/api/points');
-          if (res.ok) {
-            const data = await res.json();
-            if (data.vivi !== undefined && data.andy !== undefined) {
-              setPoints({
-                vivi: Number(data.vivi) || 0,
-                andy: Number(data.andy) || 0,
-              });
-            }
-          }
-        } catch (e) {}
-      }
-    }, 4000);
-
-    return () => {
-      clearTimeout(reconnectTimeout);
-      clearInterval(pollInterval);
-      if (ws) ws.close();
-    };
+    fetchPoints();
+    const interval = setInterval(fetchPoints, 2500);
+    return () => clearInterval(interval);
   }, []);
 
   const handlePinDigit = (digit: string) => {
@@ -128,31 +88,35 @@ export default function App() {
     }
 
     setIsSyncing(true);
+    const newLocalVal = Math.max(0, Math.round((points[person] + delta) * 10) / 10);
+    
+    // Actualización optimista inmediata en pantalla
     setPoints((prev) => ({
       ...prev,
-      [person]: Math.max(0, Math.round((prev[person] + delta) * 10) / 10),
+      [person]: newLocalVal,
     }));
 
-    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(
-        JSON.stringify({
-          type: 'UPDATE_POINTS',
-          person,
-          delta,
-          pin: '0000',
-        })
-      );
-      setIsSyncing(false);
-      return;
-    }
-
     try {
-      await fetch('/api/points', {
+      const res = await fetch('/api/points', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ person, delta, pin: '0000' }),
       });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.vivi !== undefined && data.andy !== undefined) {
+          setPoints({
+            vivi: Number(data.vivi) || 0,
+            andy: Number(data.andy) || 0,
+          });
+        }
+      } else {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Fallo al guardar en Cloudflare');
+      }
     } catch (e) {
+      showToast('Error de conexión con Cloudflare');
     } finally {
       setIsSyncing(false);
     }
@@ -162,7 +126,7 @@ export default function App() {
     return Number.isInteger(val) ? val.toString() : val.toFixed(1);
   };
 
-  // Posiciones de partículas glitter de luz sutil
+  // Puntos luminosos de glitter sutil
   const glitterDots = [
     { top: '10%', left: '12%', delay: '0s', duration: '3.4s', size: 3 },
     { top: '16%', right: '14%', delay: '1.2s', duration: '2.6s', size: 4 },
