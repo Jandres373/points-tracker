@@ -6,7 +6,6 @@ interface Env {
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
 
-  // Headers CORS para respuestas limpias
   const headers = {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
@@ -33,10 +32,15 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     return new Response(JSON.stringify({ vivi, andy }), { headers });
   }
 
-  // POST: Modificar puntos
+  // POST: Modificar puntos (delta relativo o valor exacto absoluto)
   if (request.method === "POST") {
     try {
-      const body = (await request.json()) as { person: string; delta: number; pin: string };
+      const body = (await request.json()) as { 
+        person: string; 
+        delta?: number; 
+        exactValue?: number;
+        pin: string;
+      };
       const validPin = env.SECURITY_PIN || "0000";
 
       if (body.pin !== validPin) {
@@ -54,14 +58,21 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         );
       }
 
-      let current = 0;
-      if (env.POINTS_KV) {
-        const stored = await env.POINTS_KV.get(person);
-        if (stored !== null) current = parseFloat(stored);
-      }
+      let updatedVal = 0;
 
-      const delta = Number(body.delta || 0);
-      const updatedVal = Math.max(0, Math.round((current + delta) * 10) / 10);
+      if (body.exactValue !== undefined) {
+        // Asignación de valor exacto directo
+        updatedVal = Math.max(0, Math.round(Number(body.exactValue) * 10) / 10);
+      } else {
+        // Incremento o decremento
+        let current = 0;
+        if (env.POINTS_KV) {
+          const stored = await env.POINTS_KV.get(person);
+          if (stored !== null) current = parseFloat(stored);
+        }
+        const delta = Number(body.delta || 0);
+        updatedVal = Math.max(0, Math.round((current + delta) * 10) / 10);
+      }
 
       if (env.POINTS_KV) {
         await env.POINTS_KV.put(person, updatedVal.toString());

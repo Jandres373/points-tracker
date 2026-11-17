@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Lock, Unlock, Minus, Plus, X } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Lock, Unlock, Minus, Plus, X, Check, Edit2 } from 'lucide-react';
 
 interface PointsState {
   vivi: number;
@@ -21,8 +21,15 @@ export default function App() {
   const [showPinModal, setShowPinModal] = useState<boolean>(false);
   const [pinInput, setPinInput] = useState<string>('');
   const [pinError, setPinError] = useState<string>('');
-  const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  // Estado para la edición manual directa del número
+  const [manualModal, setManualModal] = useState<{ person: 'vivi' | 'andy'; value: string } | null>(null);
+
+  // Cola y debounce para evitar race-conditions al pulsar rápido
+  const pendingUpdatesRef = useRef<{ vivi?: number; andy?: number }>({});
+  const debounceTimerRef = useRef<{ vivi?: any; andy?: any }>({});
+  const isEditingRef = useRef<boolean>(false);
 
   useEffect(() => {
     localStorage.setItem('pts_cache', JSON.stringify(points));
@@ -33,8 +40,13 @@ export default function App() {
     setTimeout(() => setToast(null), 2400);
   };
 
-  // Función para obtener puntos del servidor
+  // Obtener puntos del servidor
   const fetchPoints = async () => {
+    // Si el usuario está tocando o hay cambios encolados, no sobrescribir local
+    if (isEditingRef.current || pendingUpdatesRef.current.vivi !== undefined || pendingUpdatesRef.current.andy !== undefined) {
+      return;
+    }
+
     try {
       const res = await fetch('/api/points', { cache: 'no-store' });
       if (res.ok) {
@@ -46,15 +58,12 @@ export default function App() {
           });
         }
       }
-    } catch (e) {
-      // Ignorar errores transitorios de red
-    }
+    } catch (e) {}
   };
 
-  // Carga inicial y sondeo periódico (Realtime polling)
   useEffect(() => {
     fetchPoints();
-    const interval = setInterval(fetchPoints, 2500);
+    const interval = setInterval(fetchPoints, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -81,45 +90,88 @@ export default function App() {
     }
   };
 
-  const modifyPoints = async (person: 'vivi' | 'andy', delta: number) => {
+  // Enviar valor consolidado a Cloudflare
+  const sendFinalUpdate = async (person: 'vivi' | 'andy', exactVal: number) => {
+    try {
+      const res = await fetch('/api/points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ person, exactValue: exactVal, pin: '0000' }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showToast(err.error || 'Error al guardar');
+      }
+    } catch (e) {
+      showToast('Error de conexión');
+    } finally {
+      delete pendingUpdatesRef.current[person];
+      isEditingRef.current = false;
+    }
+  };
+
+  // Modificar puntos por botones (+1, -1, +0.5, -0.5) con Debounce/Buffer
+  const modifyPoints = (person: 'vivi' | 'andy', delta: number) => {
     if (!isAuthenticated) {
       setShowPinModal(true);
       return;
     }
 
-    setIsSyncing(true);
-    const newLocalVal = Math.max(0, Math.round((points[person] + delta) * 10) / 10);
-    
-    // Actualización optimista inmediata en pantalla
+    isEditingRef.current = true;
+
+    setPoints((prev) => {
+      const currentVal = prev[person];
+      const newVal = Math.max(0, Math.round((currentVal + delta) * 10) / 10);
+      pendingUpdatesRef.current[person] = newVal;
+
+      // Reiniciar debounce para agrupar toques muy rápidos
+      if (debounceTimerRef.current[person]) {
+        clearTimeout(debounceTimerRef.current[person]);
+      }
+
+      debounceTimerRef.current[person] = setTimeout(() => {
+        sendFinalUpdate(person, newVal);
+      }, 500); // 500ms tras el último toque guarda el valor exacto final
+
+      return {
+        ...prev,
+        [person]: newVal,
+      };
+    });
+  };
+
+  // Guardar edición manual directa del número
+  const handleSaveManual = async () => {
+    if (!manualModal) return;
+    const parsed = parseFloat(manualModal.value);
+    if (isNaN(parsed) || parsed < 0) {
+      showToast('Ingresa un número válido');
+      return;
+    }
+
+    const finalVal = Math.round(parsed * 10) / 10;
+    const person = manualModal.person;
+
     setPoints((prev) => ({
       ...prev,
-      [person]: newLocalVal,
+      [person]: finalVal,
     }));
 
-    try {
-      const res = await fetch('/api/points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ person, delta, pin: '0000' }),
-      });
+    setManualModal(null);
+    await sendFinalUpdate(person, finalVal);
+    showToast(`Puntaje de ${person === 'vivi' ? 'Vivi' : 'Andy'} actualizado`);
+  };
 
-      if (res.ok) {
-        const data = await res.json();
-        if (data.vivi !== undefined && data.andy !== undefined) {
-          setPoints({
-            vivi: Number(data.vivi) || 0,
-            andy: Number(data.andy) || 0,
-          });
-        }
-      } else {
-        const err = await res.json().catch(() => ({}));
-        showToast(err.error || 'Fallo al guardar en Cloudflare');
-      }
-    } catch (e) {
-      showToast('Error de conexión con Cloudflare');
-    } finally {
-      setIsSyncing(false);
+  const handleOpenManual = (person: 'vivi' | 'andy') => {
+    if (!isAuthenticated) {
+      setShowPinModal(true);
+      return;
     }
+    setManualModal({
+      person,
+      value: points[person].toString(),
+    });
   };
 
   const formatPoints = (val: number) => {
@@ -203,7 +255,7 @@ export default function App() {
         </button>
       </header>
 
-      {/* Contenido Principal Mobile: Secciones sin etiquetas de líder */}
+      {/* Contenido Principal Mobile: Secciones con tap directo en números */}
       <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-4">
         
         {/* Sección Vivi */}
@@ -212,19 +264,31 @@ export default function App() {
             <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
               I. Vivi
             </span>
+            <span className="text-[10px] uppercase font-mono text-stone-400 tracking-wider">
+              {isAuthenticated ? 'Toca el número para editar' : ''}
+            </span>
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter">
-              {formatPoints(points.vivi)}
-            </div>
+            {/* Número con soporte Click/Tap para edición directa */}
+            <button
+              onClick={() => handleOpenManual('vivi')}
+              className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
+              title="Toca para escribir el número directamente"
+            >
+              <span className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter group-hover:text-stone-700">
+                {formatPoints(points.vivi)}
+              </span>
+              {isAuthenticated && (
+                <Edit2 className="w-3.5 h-3.5 text-stone-400 opacity-40 group-hover:opacity-100 transition" />
+              )}
+            </button>
 
-            {/* Controles de puntuación (Entero y Medio punto) */}
+            {/* Controles de puntuación (+0.5, +1, -0.5, -1) */}
             <div className="flex items-center gap-2">
-              {/* Botones de Resta */}
               <div className="flex flex-col gap-1.5">
                 <button
-                  disabled={isSyncing || points.vivi < 0.5}
+                  disabled={points.vivi < 0.5}
                   onClick={() => modifyPoints('vivi', -0.5)}
                   className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
                   title="Restar 0.5"
@@ -232,7 +296,7 @@ export default function App() {
                   -0.5
                 </button>
                 <button
-                  disabled={isSyncing || points.vivi < 1}
+                  disabled={points.vivi < 1}
                   onClick={() => modifyPoints('vivi', -1)}
                   className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
                   title="Restar 1"
@@ -241,10 +305,8 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Botones de Suma */}
               <div className="flex flex-col gap-1.5">
                 <button
-                  disabled={isSyncing}
                   onClick={() => modifyPoints('vivi', 0.5)}
                   className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
                   title="Sumar 0.5"
@@ -252,7 +314,6 @@ export default function App() {
                   +0.5
                 </button>
                 <button
-                  disabled={isSyncing}
                   onClick={() => modifyPoints('vivi', 1)}
                   className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
                   title="Sumar 1"
@@ -270,19 +331,31 @@ export default function App() {
             <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
               II. Andy
             </span>
+            <span className="text-[10px] uppercase font-mono text-stone-400 tracking-wider">
+              {isAuthenticated ? 'Toca el número para editar' : ''}
+            </span>
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter">
-              {formatPoints(points.andy)}
-            </div>
+            {/* Número con soporte Click/Tap para edición directa */}
+            <button
+              onClick={() => handleOpenManual('andy')}
+              className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
+              title="Toca para escribir el número directamente"
+            >
+              <span className="font-mono-num text-6xl sm:text-7xl font-light text-stone-900 tracking-tighter group-hover:text-stone-700">
+                {formatPoints(points.andy)}
+              </span>
+              {isAuthenticated && (
+                <Edit2 className="w-3.5 h-3.5 text-stone-400 opacity-40 group-hover:opacity-100 transition" />
+              )}
+            </button>
 
-            {/* Controles de puntuación (Entero y Medio punto) */}
+            {/* Controles de puntuación (+0.5, +1, -0.5, -1) */}
             <div className="flex items-center gap-2">
-              {/* Botones de Resta */}
               <div className="flex flex-col gap-1.5">
                 <button
-                  disabled={isSyncing || points.andy < 0.5}
+                  disabled={points.andy < 0.5}
                   onClick={() => modifyPoints('andy', -0.5)}
                   className="px-2.5 py-1 rounded-full border border-stone-800/25 text-[11px] font-mono text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
                   title="Restar 0.5"
@@ -290,7 +363,7 @@ export default function App() {
                   -0.5
                 </button>
                 <button
-                  disabled={isSyncing || points.andy < 1}
+                  disabled={points.andy < 1}
                   onClick={() => modifyPoints('andy', -1)}
                   className="w-10 h-10 rounded-full border border-stone-800/25 flex items-center justify-center text-stone-700 hover:text-stone-900 hover:border-stone-900 active:bg-stone-800 active:text-[#f7f4ec] transition-all disabled:opacity-20 cursor-pointer"
                   title="Restar 1"
@@ -299,10 +372,8 @@ export default function App() {
                 </button>
               </div>
 
-              {/* Botones de Suma */}
               <div className="flex flex-col gap-1.5">
                 <button
-                  disabled={isSyncing}
                   onClick={() => modifyPoints('andy', 0.5)}
                   className="px-2.5 py-1 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] text-[11px] font-mono hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
                   title="Sumar 0.5"
@@ -310,7 +381,6 @@ export default function App() {
                   +0.5
                 </button>
                 <button
-                  disabled={isSyncing}
                   onClick={() => modifyPoints('andy', 1)}
                   className="w-10 h-10 rounded-full border border-stone-900 bg-stone-900 text-[#f7f4ec] flex items-center justify-center hover:bg-stone-800 active:scale-95 transition-all cursor-pointer shadow-xs"
                   title="Sumar 1"
@@ -332,6 +402,55 @@ export default function App() {
           {isAuthenticated ? 'Autorizado' : 'Solo lectura'}
         </span>
       </footer>
+
+      {/* Modal para Modificar Número Manualmente */}
+      {manualModal && (
+        <div className="fixed inset-0 z-50 bg-[#1c1917]/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-xs bg-[#f7f4ec] border border-stone-800/20 p-6 rounded-3xl shadow-2xl relative">
+            <button
+              onClick={() => setManualModal(null)}
+              className="absolute top-4 right-4 p-1.5 text-stone-400 hover:text-stone-900 cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block mb-1">
+              Editar Puntaje
+            </span>
+            <h3 className="text-base font-cinzel text-stone-900 font-semibold mb-4">
+              Puntos de {manualModal.person === 'vivi' ? 'Vivi' : 'Andy'}
+            </h3>
+
+            <div className="relative mb-5">
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                autoFocus
+                value={manualModal.value}
+                onChange={(e) => setManualModal({ ...manualModal, value: e.target.value })}
+                className="w-full text-center text-4xl font-mono-num py-3 px-4 rounded-2xl bg-white border border-stone-800/20 text-stone-900 focus:outline-none focus:border-stone-900 font-light"
+              />
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setManualModal(null)}
+                className="flex-1 py-3 rounded-xl border border-stone-800/20 text-stone-600 font-mono text-xs hover:border-stone-800 cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveManual}
+                className="flex-1 py-3 rounded-xl bg-stone-900 text-[#f7f4ec] font-mono text-xs font-semibold hover:bg-stone-800 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm"
+              >
+                <Check className="w-4 h-4" />
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal Bottom Sheet / Teclado para PIN '0000' */}
       {showPinModal && (
@@ -359,7 +478,7 @@ export default function App() {
                 {pinError ? (
                   <span className="text-stone-900 font-bold">{pinError}</span>
                 ) : (
-                  'Ingresa 0000 para habilitar la suma o resta'
+                  'Ingresa 0000 para habilitar la edición'
                 )}
               </p>
 
