@@ -2,16 +2,5 @@ name = "points-tracker"
 compatibility_date = "2024-11-01"
 pages_build_output_dir = "dist"
 
-# Durable Object para estado en tiempo real (WebSockets / Conexiones concurrentes)
-[durable_objects]
-bindings = [
-  { name = "POINTS_TRACKER_DO", class_name = "PointsTrackerDO" }
-]
-
-[[migrations]]
-tag = "v1"
-new_classes = ["PointsTrackerDO"]
-
-# Clave secreta / PIN configurable por variable de entorno
 [vars]
 SECURITY_PIN = "0000"
