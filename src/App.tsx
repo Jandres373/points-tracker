@@ -70,6 +70,14 @@ export default function App() {
   // Estado para el panel de historial
   const [showHistory, setShowHistory] = useState<boolean>(false);
 
+  // Palabra flotante 'arrunchissssss' en posiciones aleatorias
+  const [arrunchis, setArrunchis] = useState<{
+    visible: boolean;
+    top: number;
+    left: number;
+    rotate: number;
+  }>({ visible: false, top: 25, left: 25, rotate: 0 });
+
   // Cola y debounce para evitar race-conditions al pulsar rápido
   const pendingUpdatesRef = useRef<{ vivi?: number; andy?: number }>({});
   const debounceTimerRef = useRef<{ vivi?: ReturnType<typeof setTimeout>; andy?: ReturnType<typeof setTimeout> }>({});
@@ -116,6 +124,37 @@ export default function App() {
     const interval = setInterval(fetchPoints, 3000);
     return () => clearInterval(interval);
   }, []);
+
+  // Ciclo de aparición aleatoria de 'arrunchissssss': 1s visible, se desvanece, y reaparece cada 30s
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setArrunchis((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    let showTimer: ReturnType<typeof setTimeout>;
+    let hideTimer: ReturnType<typeof setTimeout>;
+
+    const triggerAppearance = () => {
+      const top = Math.floor(Math.random() * 68) + 14;   // 14% - 82%
+      const left = Math.floor(Math.random() * 52) + 10;  // 10% - 62%
+      const rotate = Math.floor(Math.random() * 13) - 6; // -6deg a +6deg
+
+      setArrunchis({ visible: true, top, left, rotate });
+
+      hideTimer = setTimeout(() => {
+        setArrunchis((prev) => ({ ...prev, visible: false }));
+        showTimer = setTimeout(triggerAppearance, 30000);
+      }, 1000);
+    };
+
+    showTimer = setTimeout(triggerAppearance, 2000);
+
+    return () => {
+      clearTimeout(showTimer);
+      clearTimeout(hideTimer);
+    };
+  }, [isAuthenticated]);
 
   const handlePinDigit = (digit: string) => {
     if (pinInput.length < 4) {
@@ -268,6 +307,23 @@ export default function App() {
           }}
         />
       ))}
+
+      {/* Palabra flotante aleatoria 'arrunchissssss' */}
+      {isAuthenticated && (
+        <span
+          aria-hidden="true"
+          className={`pointer-events-none select-none absolute z-30 italic text-sm tracking-wide text-stone-700/80 transition-opacity duration-700 ease-in-out ${
+            arrunchis.visible ? 'opacity-100' : 'opacity-0'
+          }`}
+          style={{
+            top: `${arrunchis.top}%`,
+            left: `${arrunchis.left}%`,
+            transform: `rotate(${arrunchis.rotate}deg)`,
+          }}
+        >
+          arrunchissssss
+        </span>
+      )}
 
       {/* Notificación Toast */}
       {toast && (
