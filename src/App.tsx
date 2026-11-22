@@ -488,14 +488,9 @@ export default function App() {
           >
             {/* Cabecera del Historial */}
             <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4 border-b border-stone-800/15">
-              <div>
-                <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
-                  Hora Colombia (COT)
-                </span>
-                <h3 className="text-lg font-cinzel text-stone-900 font-semibold">
-                  Historial de Puntos
-                </h3>
-              </div>
+              <h3 className="text-lg font-cinzel text-stone-900 font-semibold">
+                Historial de Puntos
+              </h3>
               <button
                 onClick={() => setShowHistory(false)}
                 className="p-2 text-stone-500 hover:text-stone-900 cursor-pointer"
