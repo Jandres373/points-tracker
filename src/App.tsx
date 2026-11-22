@@ -1,10 +1,41 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Lock, Unlock, Minus, Plus, X, Check, Edit2 } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Lock, Unlock, Minus, Plus, X, Check, Edit2, Clock, ChevronUp } from 'lucide-react';
 
 interface PointsState {
   vivi: number;
   andy: number;
 }
+
+interface HistoryEntry {
+  id: string;
+  person: 'vivi' | 'andy';
+  delta: number;
+  newValue: number;
+  timestamp: string;
+}
+
+const formatColombiaDate = (iso: string, includeYear = false) => {
+  try {
+    const date = new Date(iso);
+    const datePart = new Intl.DateTimeFormat('es-CO', {
+      timeZone: 'America/Bogota',
+      day: '2-digit',
+      month: 'short',
+      ...(includeYear ? { year: 'numeric' } : {}),
+    }).format(date);
+
+    const timePart = new Intl.DateTimeFormat('es-CO', {
+      timeZone: 'America/Bogota',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date);
+
+    return `${datePart} · ${timePart}`;
+  } catch {
+    return '';
+  }
+};
 
 export default function App() {
   const [points, setPoints] = useState<PointsState>(() => {
@@ -17,6 +48,17 @@ export default function App() {
     return { vivi: 0, andy: 0 };
   });
 
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
+    const saved = localStorage.getItem('pts_history_cache');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {}
+    }
+    return [];
+  });
+
   // Acceso protegido: inicia siempre bloqueado hasta que ingrese el PIN 0000
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [pinInput, setPinInput] = useState<string>('');
@@ -25,22 +67,28 @@ export default function App() {
 
   // Estado para la edición manual directa del número
   const [manualModal, setManualModal] = useState<{ person: 'vivi' | 'andy'; value: string } | null>(null);
+  // Estado para el panel de historial
+  const [showHistory, setShowHistory] = useState<boolean>(false);
 
   // Cola y debounce para evitar race-conditions al pulsar rápido
   const pendingUpdatesRef = useRef<{ vivi?: number; andy?: number }>({});
-  const debounceTimerRef = useRef<{ vivi?: any; andy?: any }>({});
+  const debounceTimerRef = useRef<{ vivi?: ReturnType<typeof setTimeout>; andy?: ReturnType<typeof setTimeout> }>({});
   const isEditingRef = useRef<boolean>(false);
 
   useEffect(() => {
     localStorage.setItem('pts_cache', JSON.stringify(points));
   }, [points]);
 
+  useEffect(() => {
+    localStorage.setItem('pts_history_cache', JSON.stringify(history));
+  }, [history]);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2400);
   };
 
-  // Obtener puntos del servidor
+  // Obtener puntos e historial del servidor
   const fetchPoints = async () => {
     if (isEditingRef.current || pendingUpdatesRef.current.vivi !== undefined || pendingUpdatesRef.current.andy !== undefined) {
       return;
@@ -55,6 +103,9 @@ export default function App() {
             vivi: Number(data.vivi) || 0,
             andy: Number(data.andy) || 0,
           });
+        }
+        if (Array.isArray(data.history)) {
+          setHistory(data.history);
         }
       }
     } catch (e) {}
@@ -97,7 +148,12 @@ export default function App() {
         body: JSON.stringify({ person, exactValue: exactVal, pin: '0000' }),
       });
 
-      if (!res.ok) {
+      if (res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (Array.isArray(data.history)) {
+          setHistory(data.history);
+        }
+      } else {
         const err = await res.json().catch(() => ({}));
         showToast(err.error || 'Error al guardar');
       }
@@ -105,7 +161,9 @@ export default function App() {
       showToast('Error de conexión');
     } finally {
       delete pendingUpdatesRef.current[person];
-      isEditingRef.current = false;
+      if (pendingUpdatesRef.current.vivi === undefined && pendingUpdatesRef.current.andy === undefined) {
+        isEditingRef.current = false;
+      }
     }
   };
 
@@ -147,6 +205,9 @@ export default function App() {
     const finalVal = Math.round(parsed * 10) / 10;
     const person = manualModal.person;
 
+    isEditingRef.current = true;
+    pendingUpdatesRef.current[person] = finalVal;
+
     setPoints((prev) => ({
       ...prev,
       [person]: finalVal,
@@ -169,6 +230,13 @@ export default function App() {
     return Number.isInteger(val) ? val.toString() : val.toFixed(1);
   };
 
+  const formatDelta = (delta: number) => {
+    const abs = Number.isInteger(delta) ? Math.abs(delta).toString() : Math.abs(delta).toFixed(1);
+    return delta > 0 ? `+${abs}` : `-${abs}`;
+  };
+
+  const latestEntry = history[0];
+
   // Puntos luminosos de glitter sutil
   const glitterDots = [
     { top: '10%', left: '12%', delay: '0s', duration: '3.4s', size: 3 },
@@ -180,7 +248,7 @@ export default function App() {
   ];
 
   return (
-    <div className="relative min-h-[100dvh] flex flex-col justify-between max-w-md mx-auto px-6 py-6 select-none overflow-hidden">
+    <div className="relative h-[100dvh] w-full flex flex-col justify-between max-w-md mx-auto px-6 py-5 select-none overflow-hidden">
       {/* Grano de papel overlay */}
       <div className="paper-grain" />
 
@@ -210,11 +278,15 @@ export default function App() {
       )}
 
       {/* CONTENIDO DE LA APP: Se aplica blur completo e interactividad nula si no está autenticado */}
-      <div className={`flex flex-col flex-1 justify-between transition-all duration-500 ${
-        !isAuthenticated ? 'filter blur-md opacity-30 pointer-events-none select-none scale-[0.98]' : 'filter-none opacity-100 scale-100'
-      }`}>
+      <div
+        className={`flex flex-col flex-1 min-h-0 justify-between transition-all duration-500 ${
+          !isAuthenticated
+            ? 'filter blur-md opacity-30 pointer-events-none select-none scale-[0.98]'
+            : 'filter-none opacity-100 scale-100'
+        }`}
+      >
         {/* Encabezado */}
-        <header className="flex items-center justify-between pt-2 pb-5 border-b border-stone-800/15">
+        <header className="shrink-0 flex items-center justify-between pt-1 pb-4 border-b border-stone-800/15">
           <div>
             <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
               Registro de Puntos
@@ -228,6 +300,7 @@ export default function App() {
           <button
             onClick={() => {
               setIsAuthenticated(false);
+              setShowHistory(false);
               showToast('Sesión bloqueada');
             }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-stone-800/20 hover:border-stone-800 bg-[#f7f4ec]/80 backdrop-blur-xs text-stone-800 text-xs font-mono transition-all active:scale-95 cursor-pointer"
@@ -239,10 +312,9 @@ export default function App() {
         </header>
 
         {/* Contenido Principal Mobile: Secciones con números editables */}
-        <main className="flex-1 flex flex-col justify-center divide-y divide-stone-800/15 py-4">
-          
+        <main className="flex-1 min-h-0 flex flex-col justify-center divide-y divide-stone-800/15">
           {/* Sección Vivi */}
-          <div className="flex flex-col justify-center py-6">
+          <div className="flex flex-col justify-center py-5">
             <div className="flex items-baseline justify-between mb-1">
               <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
                 I. Vivi
@@ -253,7 +325,6 @@ export default function App() {
             </div>
 
             <div className="flex items-center justify-between">
-              {/* Número con click/tap directo para modificar */}
               <button
                 onClick={() => handleOpenManual('vivi')}
                 className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
@@ -265,7 +336,6 @@ export default function App() {
                 <Edit2 className="w-3.5 h-3.5 text-stone-400 opacity-40 group-hover:opacity-100 transition" />
               </button>
 
-              {/* Botones de acción (+0.5, +1, -0.5, -1) */}
               <div className="flex items-center gap-2">
                 <div className="flex flex-col gap-1.5">
                   <button
@@ -307,7 +377,7 @@ export default function App() {
           </div>
 
           {/* Sección Andy */}
-          <div className="flex flex-col justify-center py-6">
+          <div className="flex flex-col justify-center py-5">
             <div className="flex items-baseline justify-between mb-1">
               <span className="text-xs uppercase tracking-[0.25em] text-stone-500 font-cinzel">
                 II. Andy
@@ -318,7 +388,6 @@ export default function App() {
             </div>
 
             <div className="flex items-center justify-between">
-              {/* Número con click/tap directo para modificar */}
               <button
                 onClick={() => handleOpenManual('andy')}
                 className="text-left group cursor-pointer active:scale-98 transition flex items-baseline gap-2"
@@ -330,7 +399,6 @@ export default function App() {
                 <Edit2 className="w-3.5 h-3.5 text-stone-400 opacity-40 group-hover:opacity-100 transition" />
               </button>
 
-              {/* Botones de acción (+0.5, +1, -0.5, -1) */}
               <div className="flex items-center gap-2">
                 <div className="flex flex-col gap-1.5">
                   <button
@@ -370,24 +438,122 @@ export default function App() {
               </div>
             </div>
           </div>
-
         </main>
 
-        {/* Pie de página */}
-        <footer className="pt-4 border-t border-stone-800/15 flex items-center justify-between text-[11px] font-mono text-stone-400">
-          <span className="tracking-widest uppercase">Cloudflare Realtime</span>
-          <span className="flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-stone-700 inline-block"></span>
-            Autorizado
-          </span>
+        {/* Pie de página: Acceso directo al Historial de Puntos */}
+        <footer className="shrink-0 pt-3.5 pb-1 border-t border-stone-800/15">
+          <button
+            onClick={() => setShowHistory(true)}
+            className="w-full flex items-center justify-between gap-3 text-left group cursor-pointer active:opacity-70 transition"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] text-stone-500 font-cinzel">
+                <Clock className="w-3 h-3 text-stone-500" />
+                <span>Historial</span>
+              </div>
+              {latestEntry ? (
+                <p className="text-xs font-mono text-stone-700 truncate mt-0.5">
+                  <span className="capitalize font-semibold text-stone-900">
+                    {latestEntry.person}
+                  </span>{' '}
+                  <span className="font-semibold">
+                    {formatDelta(latestEntry.delta)}
+                  </span>
+                  <span className="text-stone-400"> · {formatColombiaDate(latestEntry.timestamp)}</span>
+                </p>
+              ) : (
+                <p className="text-xs font-mono text-stone-400 mt-0.5">
+                  Sin movimientos registrados
+                </p>
+              )}
+            </div>
+
+            <div className="shrink-0 flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-stone-600 group-hover:text-stone-900 transition">
+              <span>Ver</span>
+              <ChevronUp className="w-3.5 h-3.5" />
+            </div>
+          </button>
         </footer>
       </div>
+
+      {/* PANEL DESPLEGABLE DE HISTORIAL (Hora Colombiana) */}
+      {showHistory && isAuthenticated && (
+        <div
+          className="fixed inset-0 z-50 bg-[#1c1917]/40 backdrop-blur-xs flex flex-col justify-end"
+          onClick={() => setShowHistory(false)}
+        >
+          <div
+            className="w-full max-w-md mx-auto bg-[#f7f4ec] border-t border-stone-800/20 rounded-t-3xl shadow-2xl flex flex-col max-h-[75dvh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabecera del Historial */}
+            <div className="shrink-0 flex items-center justify-between px-6 pt-5 pb-4 border-b border-stone-800/15">
+              <div>
+                <span className="text-[10px] uppercase tracking-[0.25em] text-stone-500 font-cinzel block">
+                  Hora Colombia (COT)
+                </span>
+                <h3 className="text-lg font-cinzel text-stone-900 font-semibold">
+                  Historial de Puntos
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowHistory(false)}
+                className="p-2 text-stone-500 hover:text-stone-900 cursor-pointer"
+                title="Cerrar historial"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Lista de movimientos con scroll interno únicamente en el panel */}
+            <div className="flex-1 overflow-y-auto px-6 py-2 divide-y divide-stone-800/10">
+              {history.length === 0 ? (
+                <div className="py-12 text-center">
+                  <p className="text-xs font-mono text-stone-400 uppercase tracking-widest">
+                    Aún no hay movimientos
+                  </p>
+                </div>
+              ) : (
+                history.map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="py-3.5 flex items-center justify-between gap-4"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-cinzel text-sm font-semibold text-stone-900 capitalize">
+                          {entry.person}
+                        </span>
+                        <span className="text-[11px] font-mono text-stone-400">
+                          → {formatPoints(entry.newValue)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] font-mono text-stone-500 mt-0.5">
+                        {formatColombiaDate(entry.timestamp, true)}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`shrink-0 font-mono-num text-sm px-2.5 py-0.5 rounded-full border ${
+                        entry.delta > 0
+                          ? 'border-stone-900 bg-stone-900 text-[#f7f4ec]'
+                          : 'border-stone-800/25 text-stone-700 bg-transparent'
+                      }`}
+                    >
+                      {formatDelta(entry.delta)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* BLOQUEO TOTAL / PANTALLA DE ACCESO CON BLUR SI NO ESTÁ AUTENTICADO */}
       {!isAuthenticated && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-[#f7f4ec]/60 backdrop-blur-xl">
           <div className="w-full max-w-xs text-center flex flex-col items-center">
-            
             <div className="w-12 h-12 rounded-full border border-stone-800/20 bg-[#f7f4ec] flex items-center justify-center text-stone-800 mb-4 shadow-sm">
               <Lock className="w-5 h-5 stroke-[1.5]" />
             </div>

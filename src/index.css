@@ -8,6 +8,13 @@
     --ink-faded: #78716c;
   }
 
+  html, body, #root {
+    height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
   body {
     background-color: var(--paper-bg);
     color: var(--ink-black);
@@ -17,7 +24,6 @@
       radial-gradient(#a8a29e 0.4px, transparent 0.4px);
     background-size: 20px 20px, 36px 36px;
     background-position: 0 0, 10px 10px;
-    min-height: 100vh;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
