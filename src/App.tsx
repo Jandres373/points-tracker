@@ -125,7 +125,7 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Ciclo de aparición aleatoria de 'arrunchissssss': 1s visible, se desvanece, y reaparece cada 30s
+  // Ciclo de aparición aleatoria de 'arrunchissssss': 1s visible, se desvanece, y reaparece cada 5s
   useEffect(() => {
     if (!isAuthenticated) {
       setArrunchis((prev) => ({ ...prev, visible: false }));
@@ -144,11 +144,11 @@ export default function App() {
 
       hideTimer = setTimeout(() => {
         setArrunchis((prev) => ({ ...prev, visible: false }));
-        showTimer = setTimeout(triggerAppearance, 30000);
+        showTimer = setTimeout(triggerAppearance, 5000);
       }, 1000);
     };
 
-    showTimer = setTimeout(triggerAppearance, 2000);
+    showTimer = setTimeout(triggerAppearance, 1500);
 
     return () => {
       clearTimeout(showTimer);
